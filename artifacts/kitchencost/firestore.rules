@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can only read/write their own user document
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Restaurant access: only the owner can access their restaurant
+    match /restaurants/{restaurantId} {
+      // Helper function to check if the authenticated user owns this restaurant
+      function isOwner() {
+        return request.auth != null &&
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.restaurantId == restaurantId;
+      }
+
+      allow read, write: if isOwner();
+
+      // All subcollections follow the same owner rule
+      match /ingredients/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /suppliers/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /recipes/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /stock_movements/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /productions/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /sales/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /menu_items/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /menu_categories/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /resale_products/{docId} {
+        allow read, write: if isOwner();
+      }
+      match /settings/{docId} {
+        allow read, write: if isOwner();
+      }
+    }
+  }
+}
