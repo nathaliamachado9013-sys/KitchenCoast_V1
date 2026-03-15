@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -322,9 +323,11 @@ const PurchasesPage = () => {
 
   if (loadingData) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-      </div>
+      <Layout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+        </div>
+      </Layout>
     );
   }
 
@@ -333,7 +336,8 @@ const PurchasesPage = () => {
     const thumbUrl = getCloudinaryThumbnailUrl(savedResult.fileUrl, savedResult.fileMimeType);
     const isPdf = savedResult.fileMimeType === 'application/pdf';
     return (
-      <div className="page-container max-w-xl mx-auto">
+      <Layout>
+        <div className="page-container max-w-xl mx-auto">
         <div className="flex flex-col items-center text-center py-12">
           <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
             <CheckCircle2 className="w-8 h-8 text-emerald-600" />
@@ -384,13 +388,15 @@ const PurchasesPage = () => {
           </div>
         </div>
       </div>
+      </Layout>
     );
   }
 
   // ── STEP: REVIEW ─────────────────────────────────────────────────────────
   if (step === 'review') {
     return (
-      <div className="page-container">
+      <Layout>
+        <div className="page-container">
         <div className="page-header">
           <div>
             <h1 className="page-title">Revisão da Nota Fiscal</h1>
@@ -667,12 +673,14 @@ const PurchasesPage = () => {
           </Button>
         </div>
       </div>
+      </Layout>
     );
   }
 
   // ── STEP: UPLOAD ──────────────────────────────────────────────────────────
   return (
-    <div className="page-container max-w-2xl mx-auto">
+    <Layout>
+      <div className="page-container max-w-2xl mx-auto">
       <div className="page-header">
         <div>
           <h1 className="page-title">Importar Nota Fiscal</h1>
@@ -815,6 +823,7 @@ const PurchasesPage = () => {
         Os dados serão extraídos e apresentados para revisão antes de qualquer importação.
       </p>
     </div>
+    </Layout>
   );
 };
 

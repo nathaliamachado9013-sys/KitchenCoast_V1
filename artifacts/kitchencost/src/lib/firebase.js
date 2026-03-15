@@ -19,8 +19,9 @@ const app = initializeApp(firebaseConfig);
 // Firebase will print the debug token to the console — register it in:
 // Firebase Console → App Check → Apps → Add debug token
 if (import.meta.env.DEV) {
+  // Fixed debug token — register this in Firebase Console → App Check → Debug tokens
   // @ts-ignore
-  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = '0271b3e6-775e-4420-bbde-47c6e4140beb';
 }
 
 initializeAppCheck(app, {

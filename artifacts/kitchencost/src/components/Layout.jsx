@@ -6,10 +6,12 @@ const Layout = ({ children, title, actions }) => {
     <div className="app-layout">
       <Sidebar />
       <main className="main-content">
-        <header className="page-header">
-          <h1 className="page-title">{title}</h1>
-          {actions && <div className="flex items-center gap-3">{actions}</div>}
-        </header>
+        {title !== undefined && (
+          <header className="page-header">
+            <h1 className="page-title">{title}</h1>
+            {actions && <div className="flex items-center gap-3">{actions}</div>}
+          </header>
+        )}
         <div className="page-content">
           {children}
         </div>
