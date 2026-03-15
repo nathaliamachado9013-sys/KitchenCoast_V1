@@ -3,60 +3,224 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can only read/write their own user document
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    /* =========================
+       Helpers gerais
+    ========================= */
+
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Restaurant access: only the owner can access their restaurant
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function memberPath(restaurantId, uid) {
+      return /databases/$(database)/documents/restaurants/$(restaurantId)/members/$(uid);
+    }
+
+    function memberDoc(restaurantId) {
+      return get(memberPath(restaurantId, request.auth.uid));
+    }
+
+    function isMember(restaurantId) {
+      return signedIn() && exists(memberPath(restaurantId, request.auth.uid));
+    }
+
+    function memberRole(restaurantId) {
+      return isMember(restaurantId) ? memberDoc(restaurantId).data.role : null;
+    }
+
+    function memberActive(restaurantId) {
+      return isMember(restaurantId) &&
+        memberDoc(restaurantId).data.active == true;
+    }
+
+    function isOwner(restaurantId) {
+      return memberActive(restaurantId) && memberRole(restaurantId) == "owner";
+    }
+
+    function isAdmin(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin");
+    }
+
+    function isManager(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin" ||
+         memberRole(restaurantId) == "manager");
+    }
+
+    function canOperate(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin" ||
+         memberRole(restaurantId) == "manager" ||
+         memberRole(restaurantId) == "staff");
+    }
+
+    /* =========================
+       /users/{uid}
+    ========================= */
+
+    match /users/{uid} {
+      allow read: if isSelf(uid);
+      allow create: if isSelf(uid);
+      allow update: if isSelf(uid);
+      allow delete: if false;
+    }
+
+    /* =========================
+       /restaurants/{restaurantId}
+    ========================= */
+
     match /restaurants/{restaurantId} {
+      allow read: if isMember(restaurantId) && memberActive(restaurantId);
 
-      // Check if the authenticated user is the owner (after onboarding)
-      function isOwner() {
-        return request.auth != null &&
-               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.restaurantId == restaurantId;
+      // Allow signed-in user to create restaurant if ownerUid matches
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isOwner(restaurantId);
+      allow delete: if isOwner(restaurantId);
+
+      /* =========================
+         /members/{uid}
+      ========================= */
+
+      match /members/{uid} {
+        allow read: if isMember(restaurantId) && memberActive(restaurantId);
+
+        // Bootstrap: restaurant owner can create their own initial member doc
+        // Also: admins can add other members
+        allow create: if signedIn() && (
+          isAdmin(restaurantId) ||
+          (
+            exists(/databases/$(database)/documents/restaurants/$(restaurantId)) &&
+            get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerUid == request.auth.uid &&
+            request.resource.data.uid == request.auth.uid &&
+            request.resource.data.role == 'owner' &&
+            request.resource.data.active == true
+          )
+        );
+
+        allow update: if isAdmin(restaurantId)
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role in ['owner', 'admin', 'manager', 'staff'];
+
+        allow delete: if isOwner(restaurantId) && uid != request.auth.uid;
       }
 
-      // Allow creation if the userId field in the new document matches the authenticated user
-      function isCreatingOwnRestaurant() {
-        return request.auth != null &&
-               request.resource.data.userId == request.auth.uid;
-      }
+      /* =========================
+         Ingredients
+      ========================= */
 
-      allow create: if isCreatingOwnRestaurant();
-      allow read, update, delete: if isOwner();
-
-      // All subcollections follow the same owner rule
       match /ingredients/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Suppliers
+      ========================= */
+
       match /suppliers/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Recipes
+      ========================= */
+
       match /recipes/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Stock movements
+      ========================= */
+
       match /stock_movements/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create: if canOperate(restaurantId);
+        allow update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Productions
+      ========================= */
+
       match /productions/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if canOperate(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Sales
+      ========================= */
+
       match /sales/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if canOperate(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Menu items
+      ========================= */
+
       match /menu_items/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Menu categories
+      ========================= */
+
       match /menu_categories/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Resale products
+      ========================= */
+
       match /resale_products/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
       }
+
+      /* =========================
+         Settings (inclui operational_costs)
+      ========================= */
+
       match /settings/{docId} {
-        allow read, write: if isOwner();
+        allow read: if canOperate(restaurantId);
+        allow create, update: if isAdmin(restaurantId);
+        allow delete: if isOwner(restaurantId);
       }
+    }
+
+    /* =========================
+       Bloqueio default
+    ========================= */
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

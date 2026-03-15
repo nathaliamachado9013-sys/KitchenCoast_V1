@@ -31,6 +31,7 @@ const OnboardingPage = () => {
       await createRestaurant(user.uid, {
         ...formData,
         email: user.email,
+        displayName: user.displayName || formData.name,
       });
       await refreshRestaurant();
       toast({ title: 'Restaurante criado!', description: 'Bem-vindo ao KitchenCoast!' });

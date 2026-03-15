@@ -1,0 +1,83 @@
+Atue como engenheiro senior full-stack + Firebase architect no projeto KitchenCost.
+
+Objetivo desta etapa:
+migrar a arquitetura de acesso para o modelo com members por restaurante, adaptar o front-end para esse novo fluxo, aplicar compatibilidade com o novo firestore.rules e implementar as melhorias de leitura/exibição de notas no sistema.
+
+Contexto:
+- Authentication já está pronto:
+  - email/senha
+  - Google login
+  - verificação de email
+  - recuperação de senha
+- O custo de produção já foi atualizado e corrigido
+- Vou aplicar manualmente o novo firestore.rules no Firestore
+- O app já possui dados e funcionalidades ativas, então não pode quebrar
+
+Nova estrutura obrigatória:
+- /users/{uid}
+- /restaurants/{restaurantId}
+- /restaurants/{restaurantId}/members/{uid}
+- /restaurants/{restaurantId}/ingredients/{ingredientId}
+- /restaurants/{restaurantId}/suppliers/{supplierId}
+- /restaurants/{restaurantId}/recipes/{recipeId}
+- /restaurants/{restaurantId}/stock_movements/{movementId}
+- /restaurants/{restaurantId}/productions/{productionId}
+- /restaurants/{restaurantId}/sales/{saleId}
+- /restaurants/{restaurantId}/menu_items/{itemId}
+- /restaurants/{restaurantId}/menu_categories/{categoryId}
+- /restaurants/{restaurantId}/resale_products/{productId}
+- /restaurants/{restaurantId}/settings/{docId}
+
+Regras obrigatórias:
+- não usar mais users/{uid}.restaurantId como fonte de autoridade
+- a autoridade de acesso deve vir de /restaurants/{restaurantId}/members/{uid}
+- users/{uid} deve ser apenas perfil do usuário
+- suportar papéis:
+  - owner
+  - admin
+  - manager
+  - staff
+
+O que fazer:
+1. auditar o código atual e identificar onde ainda existe dependência de users/{uid}.restaurantId
+2. migrar a resolução do restaurante ativo para o modelo de members
+3. adaptar queries, services, hooks, context/providers e telas afetadas
+4. garantir compatibilidade com o novo firestore.rules
+5. ajustar permissões no front-end conforme papel do membro
+6. esconder ou bloquear ações administrativas para quem não tiver permissão
+7. manter o app funcional mesmo se o usuário não tiver membership válido
+8. preparar a base para Emulator Suite e App Check sem quebrar o ambiente atual
+
+Melhoria adicional obrigatória:
+implementar a melhoria de leitura de notas no sistema
+
+Para isso:
+- localizar onde existem campos de notas/notas internas/observações no app
+- garantir leitura correta desses campos no front-end
+- exibir notas onde fizer sentido na interface
+- evitar telas onde a nota existe no banco mas não aparece
+- padronizar o tratamento de notes/observation/observacoes/notas se houver inconsistência de nomes
+- corrigir bindings quebrados, ausência de renderização ou falhas de carregamento relacionadas a notas
+- preservar compatibilidade com dados antigos, se existirem nomes de campo diferentes
+
+Importante:
+- não reescrever o projeto inteiro sem necessidade
+- não quebrar funcionalidades existentes
+- não mexer de novo na lógica de custo de produção
+- não remover relatórios
+- não usar gambiarra insegura no front-end para substituir segurança real
+- priorizar segurança, clareza, compatibilidade e escalabilidade
+
+Ordem de execução:
+1. auditoria da estrutura atual
+2. migração para members
+3. atualização das queries e resolução do restaurante ativo
+4. adaptação do front-end por papel
+5. implementação da melhoria de leitura de notas
+6. revisão final de impactos
+
+Entrega esperada:
+- resumo do que foi alterado
+- lista de arquivos alterados
+- pontos que ainda exigem atenção depois desta etapa
+- explicação de eventual migração de dados antigos, se necessária

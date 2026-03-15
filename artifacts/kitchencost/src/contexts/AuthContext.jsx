@@ -8,7 +8,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
-import { getRestaurantByUserId } from '../lib/firestore';
+import { getRestaurantByUserId, getMember } from '../lib/firestore';
 
 const AuthContext = createContext(null);
 
@@ -21,16 +21,31 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
+  const [memberRole, setMemberRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const currency = restaurant?.currency || 'BRL';
+
+  const isOwner = memberRole === 'owner';
+  const isAdmin = memberRole === 'owner' || memberRole === 'admin';
+  const isManager = memberRole === 'owner' || memberRole === 'admin' || memberRole === 'manager';
+  const canOperate = !!memberRole;
 
   const loadRestaurant = useCallback(async (uid) => {
     try {
       const r = await getRestaurantByUserId(uid);
       setRestaurant(r);
+
+      if (r?.id || r?.restaurantId) {
+        const rid = r.id || r.restaurantId;
+        const member = await getMember(rid, uid);
+        setMemberRole(member?.role || null);
+      } else {
+        setMemberRole(null);
+      }
     } catch {
       setRestaurant(null);
+      setMemberRole(null);
     }
   }, []);
 
@@ -41,6 +56,7 @@ export const AuthProvider = ({ children }) => {
         await loadRestaurant(firebaseUser.uid);
       } else {
         setRestaurant(null);
+        setMemberRole(null);
       }
       setLoading(false);
     });
@@ -67,6 +83,7 @@ export const AuthProvider = ({ children }) => {
     await signOut(auth);
     setUser(null);
     setRestaurant(null);
+    setMemberRole(null);
   };
 
   const updateRestaurant = (data) => {
@@ -83,6 +100,11 @@ export const AuthProvider = ({ children }) => {
       restaurant,
       currency,
       loading,
+      memberRole,
+      isOwner,
+      isAdmin,
+      isManager,
+      canOperate,
       isAuthenticated: !!user,
       loginWithEmail,
       registerWithEmail,

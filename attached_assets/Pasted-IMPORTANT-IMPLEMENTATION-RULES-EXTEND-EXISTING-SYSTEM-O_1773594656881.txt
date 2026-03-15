@@ -1,0 +1,648 @@
+IMPORTANT IMPLEMENTATION RULES
+
+EXTEND EXISTING SYSTEM ONLY.
+DO NOT REBUILD THE SaaS.
+DO NOT REFACTOR WORKING MODULES.
+DO NOT CHANGE EXISTING UI FLOWS UNLESS REQUIRED BY THIS SPEC.
+DO NOT SPLIT FILES OR REORGANIZE ARCHITECTURE UNLESS STRICTLY NECESSARY.
+REUSE CURRENT DATA MODELS, SERVICES, STOCK LOGIC, SALES LOGIC, ANALYTICS LAYER, AND MULTI-TENANT RULES WHEREVER POSSIBLE.
+MINIMIZE UNNECESSARY CODE GENERATION.
+
+The KitchenCost SaaS is already live and operational.
+This implementation must be additive, safe, and production-oriented.
+
+==================================================
+GOAL OF THIS IMPLEMENTATION
+==================================================
+
+Implement a complete and professional purchase invoice workflow with AI-assisted extraction, supplier-linked invoice history, weighted average cost updates, dynamic current recipe cost recalculation, historical cost preservation for sales, clear actionable alerts, and price impact simulation.
+
+This must be implemented without breaking:
+- Dashboard
+- Cardápio
+- Fichas Técnicas
+- Produtos de Revenda
+- Ingredientes
+- Fornecedores
+- Estoque
+- Produção
+- Vendas
+- Relatórios
+- Analytics summary layer
+
+==================================================
+PART 1 — NEW PURCHASE / INVOICE WORKFLOW
+==================================================
+
+Create a new module in the sidebar:
+
+Compras
+
+Inside Compras, create at minimum:
+- Importar Nota
+- Histórico de Compras (optional lightweight list if needed)
+Do not overbuild this section.
+
+Purpose:
+Allow users to upload a photo or PDF invoice, extract data with AI, review and confirm it, then save the invoice and update stock.
+
+--------------------------------------------------
+1.1 New Invoice Import Page
+--------------------------------------------------
+
+Create page:
+Compras → Importar Nota
+
+Required UI sections:
+1. Supplier selection area
+2. File upload area
+3. AI analysis action
+4. Editable review table
+5. Confirmation / import actions
+
+Supported file types:
+- image
+- pdf
+
+--------------------------------------------------
+1.2 Supplier Selection Rules
+--------------------------------------------------
+
+Before final save/import, every invoice must be linked to exactly one supplier.
+
+Allow this workflow:
+- user may start upload without supplier selected
+- user may select existing supplier before analysis
+- user may create a new supplier inline during the process
+
+But:
+The invoice CANNOT be confirmed/imported without a supplier defined.
+
+If supplier is not chosen initially, make supplier selection required during the review step before final confirmation.
+
+Reuse existing supplier structure.
+Do not duplicate suppliers.
+
+--------------------------------------------------
+1.3 Invoice AI Extraction
+--------------------------------------------------
+
+Use AI only to assist extraction.
+Do NOT auto-save directly to stock.
+Human review is mandatory before import.
+
+The AI extraction must attempt to extract:
+- supplier_name_detected
+- invoice_number
+- invoice_date
+- currency
+- total_amount
+- item lines
+
+Each item line should include:
+- raw_description
+- suggested_name
+- quantity
+- unit
+- unit_price
+- line_total
+- suggested_item_type
+
+Allowed suggested_item_type values:
+- ingredient
+- resale_product
+- ignore
+- unknown
+
+If a field cannot be confidently extracted, leave it null or empty.
+Do NOT hallucinate values.
+
+--------------------------------------------------
+1.4 Invoice Review Screen
+--------------------------------------------------
+
+After AI extraction, show a full editable review screen.
+
+The review UI must allow editing:
+- supplier
+- invoice_number
+- invoice_date
+- total_amount
+- each item line:
+  - raw_description
+  - suggested_name
+  - quantity
+  - unit
+  - unit_price
+  - line_total
+  - item_type
+  - linked_existing_item
+  - create_new_item flag
+
+This review step is mandatory before import.
+
+Do not make this read-only.
+
+--------------------------------------------------
+1.5 Matching Existing Items
+--------------------------------------------------
+
+For each extracted line, compare against existing tenant items.
+
+Allow the user to choose one of the following actions per line:
+- link to existing ingredient
+- link to existing resale product
+- create new ingredient
+- create new resale product
+- ignore line
+
+If no item exists, the system may create a new item ONLY after user confirmation.
+
+Never auto-create new stock items directly from AI without user confirmation.
+
+--------------------------------------------------
+1.6 What Should and Should Not Affect Stock
+--------------------------------------------------
+
+Only confirmed lines classified as:
+- ingredient
+- resale_product
+
+should create stock entries.
+
+Lines classified as:
+- ignore
+- unknown
+- service / fee / freight / discount / other non-stock content
+
+must be saved in the invoice record if present, but must NOT move stock.
+
+--------------------------------------------------
+1.7 Duplicate Invoice Protection
+--------------------------------------------------
+
+Before final import, check for possible duplicates using:
+- tenant_id
+- supplier_id
+- invoice_number
+- invoice_date
+- total_amount
+
+If a likely duplicate exists:
+- warn the user clearly
+- do not auto-import
+- require explicit confirmation or cancellation
+
+Never import duplicate stock movements silently.
+
+--------------------------------------------------
+1.8 Invoice Status Workflow
+--------------------------------------------------
+
+Add invoice status values:
+
+- draft
+- extracted
+- in_review
+- imported
+- with_divergence
+- cancelled
+
+Use these statuses consistently.
+
+Suggested behavior:
+- file uploaded → draft
+- AI extracted → extracted
+- user opens review → in_review
+- user confirms and stock updated → imported
+- user flags mismatch → with_divergence
+- user discards → cancelled
+
+==================================================
+PART 2 — DATA MODEL FOR INVOICES AND PURCHASES
+==================================================
+
+Create the minimum safe data structures needed.
+Do not redesign existing stock models.
+
+--------------------------------------------------
+2.1 Invoice Document Record
+--------------------------------------------------
+
+Create a collection/table for stored invoices.
+
+Suggested structure:
+- id
+- tenant_id
+- supplier_id
+- supplier_name_snapshot
+- invoice_number
+- invoice_date
+- currency
+- total_amount
+- file_url
+- file_type
+- extracted_json
+- confirmed_json
+- status
+- uploaded_by
+- created_at
+- updated_at
+
+Store:
+- original uploaded file reference
+- extracted AI result
+- final confirmed result
+
+This is required for auditability and later consultation.
+
+--------------------------------------------------
+2.2 Purchase Record
+--------------------------------------------------
+
+Create or reuse purchase records as the confirmed operational effect of the invoice.
+
+Suggested fields:
+- id
+- tenant_id
+- supplier_id
+- invoice_id
+- purchase_date
+- total_amount
+- lines
+- created_by
+- created_at
+
+Each purchase line should store:
+- item_type
+- item_id
+- raw_description
+- confirmed_name
+- quantity
+- unit
+- unit_price
+- line_total
+
+Purchase and invoice must be linked but not be the same object.
+
+--------------------------------------------------
+2.3 Stock Movements
+--------------------------------------------------
+
+After final invoice import, generate stock movements using the existing stock logic.
+
+Reuse the same stock update process already used by manual stock entries where possible.
+
+Do not create a parallel stock logic path.
+
+==================================================
+PART 3 — SUPPLIER PAGE IMPROVEMENT
+==================================================
+
+Keep invoice history inside the supplier page.
+
+--------------------------------------------------
+3.1 Supplier Cards Page
+--------------------------------------------------
+
+Keep the existing supplier cards page.
+Do not redesign it unnecessarily.
+
+--------------------------------------------------
+3.2 Supplier Detail Page
+--------------------------------------------------
+
+When user clicks a supplier card, open supplier detail page with tabs:
+
+- Dados do Fornecedor
+- Notas
+
+--------------------------------------------------
+3.3 Supplier Notes Tab
+--------------------------------------------------
+
+In the supplier detail page, add a tab:
+Notas
+
+Requirements:
+- show saved invoices linked to this supplier
+- order chronologically, newest first
+- include search field
+- include basic filters if easy to implement safely
+
+Each invoice entry should show:
+- invoice_date
+- invoice_number
+- total_amount
+- status
+- item_count
+- button to open details / file
+
+Add top summary if simple:
+- total invoices
+- total spent with supplier
+- last purchase date
+
+--------------------------------------------------
+3.4 Search in Notes Tab
+--------------------------------------------------
+
+Add a search field for supplier notes.
+
+Search should work against at least:
+- invoice_number
+- raw item description
+- confirmed item name
+- total_amount
+
+If simple date filter exists already, reuse it.
+Do not overengineer.
+
+==================================================
+PART 4 — WEIGHTED AVERAGE COST (CRITICAL)
+==================================================
+
+Implement weighted average cost for ingredients and resale products where applicable.
+
+Do NOT use “last purchase price” as the system’s main current cost logic.
+Do NOT implement FIFO lot control in this cycle.
+
+The required method is:
+weighted average cost
+
+--------------------------------------------------
+4.1 Core Formula
+--------------------------------------------------
+
+For each stock-affecting confirmed purchase line:
+
+new_total_value = current_total_stock_value + purchase_line_total
+new_total_quantity = current_stock_quantity + purchase_quantity
+
+new_average_cost = new_total_value / new_total_quantity
+
+If current stock quantity is zero before the purchase:
+new_average_cost = purchase unit cost
+
+Store and maintain for each stock item:
+- current_stock_quantity
+- current_average_cost
+- current_total_stock_value
+
+Use the same unit logic already in the system.
+Do not break existing unit handling.
+
+--------------------------------------------------
+4.2 Historical Cost Tracking
+--------------------------------------------------
+
+Every stock-affecting purchase/import must record:
+- date
+- quantity added
+- unit_price
+- line_total
+- resulting_average_cost
+
+This is necessary for audit trail and future reporting.
+
+--------------------------------------------------
+4.3 Zero Stock Reset Rule
+--------------------------------------------------
+
+If stock reaches zero:
+- total stock value becomes zero
+- average cost resets naturally
+- next purchase defines the new starting average cost
+
+==================================================
+PART 5 — RECIPE COST BEHAVIOR
+==================================================
+
+This part is essential and must be implemented correctly.
+
+--------------------------------------------------
+5.1 Dynamic Current Recipe Cost
+--------------------------------------------------
+
+Recipe current cost must always use the CURRENT average cost of its ingredients.
+
+This means:
+Recipes should not rely on a frozen cost stored forever.
+
+Instead:
+current_recipe_cost = sum(recipe ingredient quantity × ingredient current_average_cost)
+
+This should update automatically when ingredient average cost changes.
+
+Do NOT require recipe editing to refresh cost.
+
+--------------------------------------------------
+5.2 Historical Cost Preservation for Sales
+--------------------------------------------------
+
+When a sale is recorded, freeze the cost at that moment.
+
+Sales records must preserve:
+- cost_at_time_of_sale
+- sale_price_at_time_of_sale
+- profit_at_time_of_sale
+- margin_at_time_of_sale
+
+Historical reports must use historical frozen sales cost, not recalculated current recipe cost.
+
+This distinction is mandatory:
+
+- current recipe cost → dynamic, present-time operational cost
+- sales/report cost → frozen historical cost at time of transaction
+
+--------------------------------------------------
+5.3 Do Not Break Existing Analytics
+--------------------------------------------------
+
+Update or extend analytics safely so that:
+- current screens showing live current costs use dynamic current cost
+- historical profitability reports keep using historical transaction cost
+
+Do not overwrite historical profitability data with newly recalculated current costs.
+
+==================================================
+PART 6 — ALERTS: CLEAR, HUMAN, ACTIONABLE
+==================================================
+
+Alerts must be short, understandable, and useful.
+
+Do NOT create vague or technical alerts.
+
+Alerts should look like:
+⚠ Custo da receita aumentou 18% no último mês
+💡 Sugestão: aumentar o preço em 0,80€ ou revisar ingredientes
+
+--------------------------------------------------
+6.1 Recipe Cost Increase Alerts
+--------------------------------------------------
+
+Implement alert logic for meaningful recipe cost increase.
+
+Example condition:
+compare current_recipe_cost against previous month baseline or previous stored reference.
+
+If recipe cost increase is significant:
+show alert like:
+⚠ Custo da receita aumentou X% no último mês
+💡 Sugestão: revisar preço, fornecedores ou ingredientes
+
+If margin falls below expected:
+⚠ A margem deste prato caiu para X%
+💡 Sugestão: aumentar o preço em Y€ para recuperar a margem
+
+--------------------------------------------------
+6.2 Menu Performance Alerts
+--------------------------------------------------
+
+Using existing menu engineering and profitability data, allow simple actionable alerts such as:
+
+⚠ Este prato vende bem, mas tem margem baixa
+💡 Sugestão: aumentar 0,50€ pode gerar +210€/mês
+
+⚠ Este item tem baixa saída e baixa rentabilidade
+💡 Sugestão: revisar apresentação, reposicionar no cardápio ou remover
+
+Keep alerts human-readable and commercially useful.
+
+--------------------------------------------------
+6.3 Display Scope
+--------------------------------------------------
+
+Show alerts in sensible places only:
+- Dashboard
+- Cardápio item details/cards if safe
+- Fichas Técnicas pricing area if relevant
+
+Do not flood the UI with too many alerts.
+
+==================================================
+PART 7 — PRICE IMPACT SIMULATION
+==================================================
+
+Implement a lightweight but powerful price simulation feature.
+
+Purpose:
+Allow the user to test hypothetical price changes without changing the real saved sale price.
+
+--------------------------------------------------
+7.1 Where to Add It
+--------------------------------------------------
+
+Add simulation in a safe place such as:
+- Cardápio item detail/modal
+or
+- Fichas Técnicas pricing section
+Choose the smallest-impact UI location that fits the existing design.
+
+Do NOT redesign the whole UI.
+
+--------------------------------------------------
+7.2 Simulation Inputs
+--------------------------------------------------
+
+Use:
+- current item cost
+- current actual sale price
+- units sold in selected period
+- simulated sale price
+
+--------------------------------------------------
+7.3 Simulation Outputs
+--------------------------------------------------
+
+Show:
+- current profit per unit
+- simulated profit per unit
+- current total profit for selected period
+- simulated total profit for selected period
+- impact difference
+
+Example:
+Preço atual: 12€
+Preço simulado: 13€
+Lucro atual/mês: 936€
+Lucro simulado/mês: 1056€
+Impacto estimado: +120€/mês
+
+--------------------------------------------------
+7.4 Rules
+--------------------------------------------------
+
+Simulation must NOT persist automatically.
+It is only a decision-support tool unless user explicitly saves a new sale price elsewhere.
+
+Use existing sales volume for the selected period.
+Default period can be current month.
+
+==================================================
+PART 8 — MULTI-TENANT, SECURITY, AND DATA SAFETY
+==================================================
+
+Apply all new logic with strict tenant isolation.
+
+Rules:
+- every new invoice, purchase, supplier note, and analytics query must include tenant_id
+- no cross-tenant data leakage
+- reuse authenticated user context
+
+Do not expose sensitive AI provider keys in the frontend beyond what Firebase AI Logic safely supports.
+Do not create insecure direct write paths to stock without user confirmation.
+
+==================================================
+PART 9 — PERFORMANCE AND IMPLEMENTATION SAFETY
+==================================================
+
+This implementation must be production-safe.
+
+Requirements:
+- reuse existing APIs/services/models if possible
+- avoid duplicate heavy calculations in the UI
+- use current analytics summary layer where useful
+- do not force full historical recalculation on each page load
+- update only what is necessary after invoice import
+- preserve current live SaaS stability
+
+If historical backfill is needed for new alert references, implement it safely and minimally.
+
+==================================================
+PART 10 — WHAT MUST NOT BE DONE
+==================================================
+
+Do NOT:
+- refactor the whole backend
+- rebuild suppliers module from scratch
+- redesign dashboard
+- redesign cardápio
+- change existing working stock behavior outside the weighted average cost extension
+- overwrite historical sales profitability with current ingredient cost
+- auto-create inventory items without user confirmation
+- auto-import invoice to stock without human review
+- remove existing features
+
+==================================================
+EXPECTED FINAL RESULT
+==================================================
+
+After this implementation, KitchenCost must support:
+
+1. Uploading invoice photo or PDF in Compras → Importar Nota
+2. AI-assisted extraction with mandatory editable human review
+3. Supplier selection or inline creation before final import
+4. Safe item matching, item creation with confirmation, and optional ignored lines
+5. Duplicate invoice protection
+6. Saving the original invoice document and structured invoice data
+7. Creating a confirmed purchase linked to the invoice
+8. Updating stock using weighted average cost
+9. Recalculating current recipe cost dynamically from current average ingredient cost
+10. Preserving historical transaction cost in sales and reports
+11. Showing invoices inside supplier detail page under tab “Notas”
+12. Searching invoice history inside supplier page
+13. Showing clear alerts with suggestions
+14. Allowing price impact simulation without changing live sale price automatically
+
+This must be implemented as a precise production feature extension, not as a redesign.

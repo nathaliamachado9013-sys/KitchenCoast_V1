@@ -12,36 +12,55 @@ import {
   orderBy,
   limit,
   serverTimestamp,
-  Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { generateId, convertUnits, canConvert } from './utils';
 
-// ====================== RESTAURANT ======================
+// ====================== RESTAURANT & MEMBERS ======================
 
 export const createRestaurant = async (userId, data) => {
   const restaurantId = `rest_${generateId()}`;
   const restaurantRef = doc(db, 'restaurants', restaurantId);
+
+  // Step 1: Create restaurant doc with ownerUid
   const restaurant = {
-    restaurantId,
-    userId,
     name: data.name,
+    ownerUid: userId,
+    currency: data.currency || 'BRL',
     address: data.address || '',
     phone: data.phone || '',
-    currency: data.currency || 'BRL',
+    active: true,
     createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   };
   await setDoc(restaurantRef, restaurant);
-  // Save restaurantId in user doc
-  await setDoc(doc(db, 'users', userId), { restaurantId, email: data.email || '', name: data.name }, { merge: true });
-  return { ...restaurant, id: restaurantId };
+
+  // Step 2: Create owner member doc (bootstrap)
+  const memberRef = doc(db, 'restaurants', restaurantId, 'members', userId);
+  await setDoc(memberRef, {
+    uid: userId,
+    email: data.email || '',
+    displayName: data.displayName || '',
+    role: 'owner',
+    active: true,
+    createdAt: serverTimestamp(),
+  });
+
+  // Step 3: Save restaurantId in users doc for fast lookup
+  await setDoc(doc(db, 'users', userId), {
+    email: data.email || '',
+    displayName: data.displayName || data.name || '',
+    restaurantId,
+    createdAt: serverTimestamp(),
+    lastLoginAt: serverTimestamp(),
+  }, { merge: true });
+
+  return { id: restaurantId, restaurantId, ...restaurant };
 };
 
 export const getRestaurant = async (restaurantId) => {
   const snap = await getDoc(doc(db, 'restaurants', restaurantId));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
+  return { id: snap.id, restaurantId: snap.id, ...snap.data() };
 };
 
 export const getRestaurantByUserId = async (userId) => {
@@ -57,6 +76,39 @@ export const updateRestaurant = async (restaurantId, data) => {
   });
 };
 
+// ====================== MEMBER ROLES ======================
+
+export const getMember = async (restaurantId, userId) => {
+  const snap = await getDoc(doc(db, 'restaurants', restaurantId, 'members', userId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+};
+
+export const getMembers = async (restaurantId) => {
+  const snap = await getDocs(collection(db, 'restaurants', restaurantId, 'members'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+export const inviteMember = async (restaurantId, data) => {
+  const ref = doc(db, 'restaurants', restaurantId, 'members', data.uid);
+  await setDoc(ref, {
+    uid: data.uid,
+    email: data.email || '',
+    displayName: data.displayName || '',
+    role: data.role || 'staff',
+    active: true,
+    createdAt: serverTimestamp(),
+  });
+};
+
+export const updateMember = async (restaurantId, memberId, data) => {
+  await updateDoc(doc(db, 'restaurants', restaurantId, 'members', memberId), data);
+};
+
+export const removeMember = async (restaurantId, memberId) => {
+  await deleteDoc(doc(db, 'restaurants', restaurantId, 'members', memberId));
+};
+
 // ====================== SUPPLIERS ======================
 
 export const getSuppliers = async (restaurantId) => {
@@ -69,18 +121,24 @@ export const getSuppliers = async (restaurantId) => {
 };
 
 export const createSupplier = async (restaurantId, data) => {
+  const { restaurantId: _r, ...cleanData } = data;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'suppliers'), {
-    ...data,
-    restaurantId,
+    name: cleanData.name,
+    contactName: cleanData.contactName || '',
+    email: cleanData.email || '',
+    phone: cleanData.phone || '',
+    notes: cleanData.notes || '',
+    active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...data };
+  return { id: ref.id, ...cleanData };
 };
 
 export const updateSupplier = async (restaurantId, supplierId, data) => {
+  const { restaurantId: _r, ...cleanData } = data;
   await updateDoc(doc(db, 'restaurants', restaurantId, 'suppliers', supplierId), {
-    ...data,
+    ...cleanData,
     updatedAt: serverTimestamp(),
   });
 };
@@ -113,30 +171,39 @@ export const getIngredients = async (restaurantId, filters = {}) => {
 };
 
 export const createIngredient = async (restaurantId, data) => {
+  const { restaurantId: _r, ...cleanData } = data;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'ingredients'), {
-    ...data,
-    restaurantId,
-    priceHistory: [{ price: data.costPerUnit, date: new Date().toISOString() }],
+    name: cleanData.name,
+    unit: cleanData.unit,
+    costPerUnit: cleanData.costPerUnit || 0,
+    supplierId: cleanData.supplierId || null,
+    notes: cleanData.notes || '',
+    category: cleanData.category || '',
+    currentStock: cleanData.currentStock || 0,
+    minStock: cleanData.minStock || 0,
+    priceHistory: [{ price: cleanData.costPerUnit || 0, date: new Date().toISOString() }],
+    active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...data };
+  return { id: ref.id, ...cleanData };
 };
 
 export const updateIngredient = async (restaurantId, ingredientId, data) => {
   const ref = doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId);
   const snap = await getDoc(ref);
   const existing = snap.data();
+  const { restaurantId: _r, ...cleanData } = data;
 
   let priceHistory = existing?.priceHistory || [];
-  if (data.costPerUnit !== undefined && data.costPerUnit !== existing?.costPerUnit) {
+  if (cleanData.costPerUnit !== undefined && cleanData.costPerUnit !== existing?.costPerUnit) {
     priceHistory = [
       ...priceHistory,
-      { price: data.costPerUnit, date: new Date().toISOString() },
+      { price: cleanData.costPerUnit, date: new Date().toISOString() },
     ];
   }
 
-  await updateDoc(ref, { ...data, priceHistory, updatedAt: serverTimestamp() });
+  await updateDoc(ref, { ...cleanData, priceHistory, updatedAt: serverTimestamp() });
 };
 
 export const deleteIngredient = async (restaurantId, ingredientId) => {
@@ -206,21 +273,22 @@ export const getRecipes = async (restaurantId, filters = {}) => {
 };
 
 export const createRecipe = async (restaurantId, data, ingredients = [], opCostPerDish = 0) => {
-  const costs = calculateRecipeCost(data, ingredients, opCostPerDish);
+  const { restaurantId: _r, ...cleanData } = data;
+  const costs = calculateRecipeCost(cleanData, ingredients, opCostPerDish);
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'recipes'), {
-    ...data,
+    ...cleanData,
     ...costs,
-    restaurantId,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...data, ...costs };
+  return { id: ref.id, ...cleanData, ...costs };
 };
 
 export const updateRecipe = async (restaurantId, recipeId, data, ingredients = [], opCostPerDish = 0) => {
-  const costs = calculateRecipeCost(data, ingredients, opCostPerDish);
+  const { restaurantId: _r, ...cleanData } = data;
+  const costs = calculateRecipeCost(cleanData, ingredients, opCostPerDish);
   await updateDoc(doc(db, 'restaurants', restaurantId, 'recipes', recipeId), {
-    ...data,
+    ...cleanData,
     ...costs,
     updatedAt: serverTimestamp(),
   });
@@ -303,13 +371,13 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
   });
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
-    type: 'entry',
+    type: 'in',
     ingredientId: data.ingredientId,
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
     unitCost: newCost,
-    reason: data.reason || 'compra',
+    notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
   return { id: ref.id };
@@ -327,13 +395,13 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
   });
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
-    type: 'exit',
+    type: 'out',
     ingredientId: data.ingredientId,
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
     unitCost: ingredient.costPerUnit,
-    reason: data.reason || 'saida',
+    notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
   return { id: ref.id };
@@ -356,7 +424,6 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
   const recipe = recipes.find(r => r.id === data.recipeId);
   if (!recipe) throw new Error('Receita não encontrada');
 
-  // Recalculate cost with CURRENT ingredient prices (this is the bug fix)
   let ingredientsCost = 0;
   const yieldQty = recipe.yieldQuantity || 1;
   const stockUpdates = [];
@@ -371,7 +438,6 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     }
     ingredientsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
 
-    // Deduct from stock
     const newStock = Math.max(0, (ing.currentStock || 0) - qty);
     stockUpdates.push(
       updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ing.id), {
@@ -389,6 +455,7 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
       recipeId: recipe.id,
       recipeName: recipe.name,
       quantity: data.quantity,
+      totalProductionCost: totalCost,
       totalCost,
       costPerUnit: totalCost / data.quantity,
       notes: data.notes || '',
@@ -429,7 +496,7 @@ export const getProductionSummary = async (restaurantId, period = 'today') => {
 
   return {
     count: filtered.length,
-    totalCost: filtered.reduce((s, p) => s + (p.totalCost || 0), 0),
+    totalCost: filtered.reduce((s, p) => s + (p.totalCost || p.totalProductionCost || 0), 0),
   };
 };
 
@@ -445,25 +512,38 @@ export const getResaleProducts = async (restaurantId) => {
 };
 
 export const createResaleProduct = async (restaurantId, data) => {
-  const profitPerUnit = (data.salePrice || 0) - (data.purchasePrice || 0);
-  const margin = data.salePrice > 0 ? (profitPerUnit / data.salePrice) * 100 : 0;
+  const { restaurantId: _r, ...cleanData } = data;
+  const cost = cleanData.cost || cleanData.purchasePrice || 0;
+  const salePrice = cleanData.salePrice || 0;
+  const profitPerUnit = salePrice - cost;
+  const margin = salePrice > 0 ? (profitPerUnit / salePrice) * 100 : 0;
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'resale_products'), {
-    ...data,
+    name: cleanData.name,
+    cost,
+    salePrice,
+    supplierId: cleanData.supplierId || null,
+    stockQuantity: cleanData.stockQuantity || cleanData.currentStock || 0,
+    sku: cleanData.sku || '',
+    notes: cleanData.notes || '',
     profitPerUnit,
     margin,
-    restaurantId,
+    active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...data, profitPerUnit, margin };
+  return { id: ref.id, ...cleanData, profitPerUnit, margin };
 };
 
 export const updateResaleProduct = async (restaurantId, productId, data) => {
-  const profitPerUnit = (data.salePrice || 0) - (data.purchasePrice || 0);
-  const margin = data.salePrice > 0 ? (profitPerUnit / data.salePrice) * 100 : 0;
+  const { restaurantId: _r, ...cleanData } = data;
+  const cost = cleanData.cost || cleanData.purchasePrice || 0;
+  const salePrice = cleanData.salePrice || 0;
+  const profitPerUnit = salePrice - cost;
+  const margin = salePrice > 0 ? (profitPerUnit / salePrice) * 100 : 0;
   await updateDoc(doc(db, 'restaurants', restaurantId, 'resale_products', productId), {
-    ...data,
+    ...cleanData,
+    cost,
     profitPerUnit,
     margin,
     updatedAt: serverTimestamp(),
@@ -486,18 +566,19 @@ export const getMenuItems = async (restaurantId) => {
 };
 
 export const createMenuItem = async (restaurantId, data) => {
+  const { restaurantId: _r, ...cleanData } = data;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'menu_items'), {
-    ...data,
-    restaurantId,
+    ...cleanData,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...data };
+  return { id: ref.id, ...cleanData };
 };
 
 export const updateMenuItem = async (restaurantId, itemId, data) => {
+  const { restaurantId: _r, ...cleanData } = data;
   await updateDoc(doc(db, 'restaurants', restaurantId, 'menu_items', itemId), {
-    ...data,
+    ...cleanData,
     updatedAt: serverTimestamp(),
   });
 };
@@ -522,7 +603,6 @@ export const createMenuCategory = async (restaurantId, name) => {
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'menu_categories'), {
     name,
     displayOrder: existing.length,
-    restaurantId,
     createdAt: serverTimestamp(),
   });
   return { id: ref.id, name, displayOrder: existing.length };
@@ -562,6 +642,7 @@ export const createSale = async (restaurantId, data, menuItems) => {
     itemName: item.name,
     itemType: item.itemType || 'recipe',
     quantitySold: data.quantitySold,
+    totalAmount: revenue,
     salePrice,
     cost,
     profit,
@@ -620,7 +701,7 @@ export const getDashboardSummary = async (restaurantId) => {
     const d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt || 0);
     return d.toDateString() === now.toDateString();
   });
-  const todayProductionCost = todayProductions.reduce((s, p) => s + (p.totalCost || 0), 0);
+  const todayProductionCost = todayProductions.reduce((s, p) => s + (p.totalCost || p.totalProductionCost || 0), 0);
 
   const monthSales = sales.filter(s => {
     const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
@@ -645,7 +726,37 @@ export const getDashboardSummary = async (restaurantId) => {
   };
 };
 
-// ====================== REPORTS (FIX: live calculation) ======================
+// ====================== REPORTS ======================
+
+const filterByPeriod = (items, period, dateField = 'createdAt') => {
+  const now = new Date();
+  if (period === 'today') {
+    return items.filter(i => {
+      const d = i[dateField]?.toDate ? i[dateField].toDate() : new Date(i[dateField] || 0);
+      return d.toDateString() === now.toDateString();
+    });
+  }
+  if (period === 'week') {
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return items.filter(i => {
+      const d = i[dateField]?.toDate ? i[dateField].toDate() : new Date(i[dateField] || 0);
+      return d >= weekAgo;
+    });
+  }
+  if (period === 'month') {
+    return items.filter(i => {
+      const d = i[dateField]?.toDate ? i[dateField].toDate() : new Date(i[dateField] || 0);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+  }
+  if (period === 'year') {
+    return items.filter(i => {
+      const d = i[dateField]?.toDate ? i[dateField].toDate() : new Date(i[dateField] || 0);
+      return d.getFullYear() === now.getFullYear();
+    });
+  }
+  return items;
+};
 
 export const getMenuProfitability = async (restaurantId, period = 'month') => {
   const [menuItems, sales, recipes, resaleProducts] = await Promise.all([
@@ -655,150 +766,119 @@ export const getMenuProfitability = async (restaurantId, period = 'month') => {
     getResaleProducts(restaurantId),
   ]);
 
-  const now = new Date();
-  let filteredSales = sales;
+  const filteredSales = filterByPeriod(sales, period);
 
-  if (period === 'today') {
-    filteredSales = sales.filter(s => {
-      const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
-      return d.toDateString() === now.toDateString();
-    });
-  } else if (period === 'week') {
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    filteredSales = sales.filter(s => {
-      const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
-      return d >= weekAgo;
-    });
-  } else if (period === 'month') {
-    filteredSales = sales.filter(s => {
-      const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-  } else if (period === 'year') {
-    filteredSales = sales.filter(s => {
-      const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
-      return d.getFullYear() === now.getFullYear();
-    });
+  // Compute average units sold for menu engineering classification
+  const itemMap = {};
+  for (const sale of filteredSales) {
+    const key = sale.itemId;
+    if (!itemMap[key]) {
+      const menuItem = menuItems.find(m => m.id === key);
+      const recipe = menuItem?.recipeId ? recipes.find(r => r.id === menuItem.recipeId) : null;
+      const resale = resaleProducts.find(r => r.id === key);
+      itemMap[key] = {
+        id: key,
+        name: sale.itemName || menuItem?.name || 'Item removido',
+        category: menuItem?.category || recipe?.category || '',
+        revenue: 0,
+        cost: 0,
+        profit: 0,
+        totalProfit: 0,
+        unitsSold: 0,
+        salePrice: menuItem?.salePrice || sale.salePrice || 0,
+        costPerUnit: menuItem?.cost || recipe?.costPerPortion || resale?.cost || sale.cost || 0,
+        profitPerUnit: 0,
+      };
+    }
+    itemMap[key].revenue += sale.revenue || 0;
+    itemMap[key].cost += (sale.cost || 0) * (sale.quantitySold || 1);
+    itemMap[key].profit += sale.profit || 0;
+    itemMap[key].totalProfit += sale.profit || 0;
+    itemMap[key].unitsSold += sale.quantitySold || 1;
   }
 
-  // Build items list from menu items + enrich with recipe/product data
-  const allItems = menuItems.map(item => {
-    let cost = 0;
-    let salePrice = item.salePrice || 0;
+  const avgUnitsSold = Object.values(itemMap).length > 0
+    ? Object.values(itemMap).reduce((s, i) => s + i.unitsSold, 0) / Object.values(itemMap).length
+    : 0;
+  const avgProfit = Object.values(itemMap).length > 0
+    ? Object.values(itemMap).reduce((s, i) => s + i.totalProfit, 0) / Object.values(itemMap).length
+    : 0;
 
-    if (item.itemType === 'recipe') {
-      const recipe = recipes.find(r => r.id === item.recipeId);
-      cost = recipe?.costPerPortion || item.cost || 0;
-    } else if (item.itemType === 'resale_product') {
-      const product = resaleProducts.find(p => p.id === item.productId);
-      cost = product?.purchasePrice || item.cost || 0;
-    }
+  const classifyItem = (item) => {
+    const highSales = item.unitsSold >= avgUnitsSold;
+    const highProfit = item.totalProfit >= avgProfit;
+    if (highSales && highProfit) return 'STAR';
+    if (highSales && !highProfit) return 'PLOWHORSE';
+    if (!highSales && highProfit) return 'PUZZLE';
+    return 'DOG';
+  };
 
-    const itemSales = filteredSales.filter(s => s.itemId === item.id);
-    const unitsSold = itemSales.reduce((s, sale) => s + (sale.quantitySold || 0), 0);
-    const totalRevenue = itemSales.reduce((s, sale) => s + (sale.revenue || 0), 0);
-    const profitPerUnit = salePrice - cost;
-    const totalProfit = profitPerUnit * unitsSold;
+  const items = Object.values(itemMap).map(item => ({
+    ...item,
+    margin: item.revenue > 0 ? (item.profit / item.revenue) * 100 : 0,
+    profitPerUnit: item.unitsSold > 0 ? item.totalProfit / item.unitsSold : 0,
+    classification: classifyItem(item),
+  })).sort((a, b) => b.totalProfit - a.totalProfit);
 
-    return {
-      id: item.id,
-      name: item.name,
-      category: item.category || '',
-      cost,
-      salePrice,
-      profitPerUnit,
-      unitsSold,
-      totalRevenue,
-      totalProfit,
-    };
-  });
-
-  // Menu engineering classification
-  const withSales = allItems.filter(i => i.unitsSold > 0 || i.profitPerUnit > 0);
-  const avgUnits = withSales.length > 0 ? withSales.reduce((s, i) => s + i.unitsSold, 0) / withSales.length : 0;
-  const avgProfit = withSales.length > 0 ? withSales.reduce((s, i) => s + i.profitPerUnit, 0) / withSales.length : 0;
-
-  const classified = allItems.map(item => {
-    let classification = 'UNCLASSIFIED';
-    if (item.salePrice > 0) {
-      if (item.unitsSold >= avgUnits && item.profitPerUnit >= avgProfit) classification = 'STAR';
-      else if (item.unitsSold >= avgUnits && item.profitPerUnit < avgProfit) classification = 'PLOWHORSE';
-      else if (item.unitsSold < avgUnits && item.profitPerUnit >= avgProfit) classification = 'PUZZLE';
-      else classification = 'DOG';
-    }
-    return { ...item, classification };
-  });
-
-  classified.sort((a, b) => b.totalProfit - a.totalProfit);
+  const totalRevenue = items.reduce((s, i) => s + i.revenue, 0);
+  const totalProfit = items.reduce((s, i) => s + i.totalProfit, 0);
+  const totalItemsSold = items.reduce((s, i) => s + i.unitsSold, 0);
 
   return {
-    period,
-    items: classified,
-    summary: {
-      totalItems: classified.length,
-      totalProfit: classified.reduce((s, i) => s + i.totalProfit, 0),
-      totalRevenue: classified.reduce((s, i) => s + i.totalRevenue, 0),
-      totalItemsSold: classified.reduce((s, i) => s + i.unitsSold, 0),
-    },
-    topProfitable: classified.slice(0, 5),
+    items,
+    summary: { totalRevenue, totalProfit, totalItemsSold },
+    totalRevenue,
+    totalProfit,
+    totalCost: items.reduce((s, i) => s + i.cost, 0),
   };
 };
 
 export const getCostReport = async (restaurantId, period = 'month') => {
-  const [productions, ingredients] = await Promise.all([
-    getProductions(restaurantId),
-    getIngredients(restaurantId),
-  ]);
+  const productions = await getProductions(restaurantId);
+  const filtered = filterByPeriod(productions, period);
 
-  const now = new Date();
-  let filtered = productions;
-  if (period === 'month') {
-    filtered = productions.filter(p => {
-      const d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt || 0);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
+  const byRecipeMap = {};
+  for (const p of filtered) {
+    const key = p.recipeId;
+    if (!byRecipeMap[key]) {
+      byRecipeMap[key] = { name: p.recipeName || 'Receita removida', count: 0, totalCost: 0 };
+    }
+    byRecipeMap[key].count += p.quantity || 1;
+    byRecipeMap[key].totalCost += p.totalCost || p.totalProductionCost || 0;
   }
 
-  const byRecipe = {};
-  filtered.forEach(p => {
-    if (!byRecipe[p.recipeName]) byRecipe[p.recipeName] = { name: p.recipeName, totalCost: 0, count: 0 };
-    byRecipe[p.recipeName].totalCost += p.totalCost || 0;
-    byRecipe[p.recipeName].count += p.quantity || 1;
-  });
+  const byRecipe = Object.values(byRecipeMap).sort((a, b) => b.totalCost - a.totalCost);
 
   return {
-    period,
-    totalCost: filtered.reduce((s, p) => s + (p.totalCost || 0), 0),
+    totalCost: byRecipe.reduce((s, r) => s + r.totalCost, 0),
     productionCount: filtered.length,
-    byRecipe: Object.values(byRecipe).sort((a, b) => b.totalCost - a.totalCost),
+    byRecipe,
   };
 };
 
 export const getMarginReport = async (restaurantId) => {
   const recipes = await getRecipes(restaurantId);
 
-  const withMargins = recipes.filter(r => r.sellingPrice > 0 && r.costPerPortion !== undefined);
+  const withPrice = recipes.filter(r => r.sellingPrice > 0).map(r => ({
+    name: r.name,
+    category: r.category || '',
+    cost: r.costPerPortion || r.totalDishCost || 0,
+    sellingPrice: r.sellingPrice || 0,
+    profit: (r.sellingPrice || 0) - (r.costPerPortion || r.totalDishCost || 0),
+    margin: r.margin || 0,
+  }));
 
-  const distribution = { negative: 0, low: 0, medium: 0, good: 0, excellent: 0 };
-  withMargins.forEach(r => {
-    const m = r.margin || 0;
-    if (m < 0) distribution.negative++;
-    else if (m < 20) distribution.low++;
-    else if (m < 40) distribution.medium++;
-    else if (m < 60) distribution.good++;
-    else distribution.excellent++;
-  });
+  const averageMargin = withPrice.length > 0
+    ? withPrice.reduce((s, r) => s + r.margin, 0) / withPrice.length
+    : 0;
 
-  return {
-    recipes: withMargins.map(r => ({
-      name: r.name,
-      category: r.category,
-      cost: r.costPerPortion || 0,
-      sellingPrice: r.sellingPrice || 0,
-      margin: r.margin || 0,
-      profit: r.profitPerUnit || 0,
-    })),
-    distribution,
-    averageMargin: withMargins.length > 0 ? withMargins.reduce((s, r) => s + (r.margin || 0), 0) / withMargins.length : 0,
+  const distribution = {
+    negative: withPrice.filter(r => r.margin < 0).length,
+    low: withPrice.filter(r => r.margin >= 0 && r.margin < 20).length,
+    medium: withPrice.filter(r => r.margin >= 20 && r.margin < 40).length,
+    good: withPrice.filter(r => r.margin >= 40 && r.margin < 60).length,
+    excellent: withPrice.filter(r => r.margin >= 60).length,
   };
+
+  return { recipes: withPrice, averageMargin, distribution };
 };

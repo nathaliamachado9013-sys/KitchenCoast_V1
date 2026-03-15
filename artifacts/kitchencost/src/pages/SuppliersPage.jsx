@@ -5,9 +5,12 @@ import { getSuppliers, createSupplier, updateSupplier, deleteSupplier } from '..
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Pencil, Trash2, Truck, Phone, Mail, MapPin } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Truck, Phone, Mail, MapPin, FileText } from 'lucide-react';
+
+const emptyForm = { name: '', contactName: '', phone: '', email: '', address: '', notes: '' };
 
 const SuppliersPage = () => {
   const { restaurant } = useAuth();
@@ -17,7 +20,7 @@ const SuppliersPage = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
-  const [formData, setFormData] = useState({ name: '', contact: '', phone: '', email: '', address: '' });
+  const [formData, setFormData] = useState(emptyForm);
 
   useEffect(() => { if (restaurant?.restaurantId) loadData(); }, [restaurant]);
 
@@ -31,7 +34,14 @@ const SuppliersPage = () => {
 
   const openModal = (item = null) => {
     setEditingItem(item);
-    setFormData(item ? { name: item.name || '', contact: item.contact || '', phone: item.phone || '', email: item.email || '', address: item.address || '' } : { name: '', contact: '', phone: '', email: '', address: '' });
+    setFormData(item ? {
+      name: item.name || '',
+      contactName: item.contactName || item.contact || '',
+      phone: item.phone || '',
+      email: item.email || '',
+      address: item.address || '',
+      notes: item.notes || '',
+    } : emptyForm);
     setModalOpen(true);
   };
 
@@ -91,10 +101,16 @@ const SuppliersPage = () => {
                 </div>
               </div>
               <div className="space-y-1.5 text-sm text-muted-foreground">
-                {s.contact && <div className="flex items-center gap-2"><span className="font-medium text-foreground">Contato:</span> {s.contact}</div>}
+                {(s.contactName || s.contact) && <div className="flex items-center gap-2"><span className="font-medium text-foreground">Contato:</span> {s.contactName || s.contact}</div>}
                 {s.phone && <div className="flex items-center gap-2"><Phone className="w-3.5 h-3.5" />{s.phone}</div>}
                 {s.email && <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" />{s.email}</div>}
                 {s.address && <div className="flex items-center gap-2"><MapPin className="w-3.5 h-3.5" />{s.address}</div>}
+                {s.notes && (
+                  <div className="flex items-start gap-2 pt-1 border-t border-border/40 mt-1">
+                    <FileText className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span className="text-xs italic">{s.notes}</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -106,12 +122,13 @@ const SuppliersPage = () => {
           <DialogHeader><DialogTitle>{editingItem ? 'Editar Fornecedor' : 'Novo Fornecedor'}</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
             <div><Label>Nome *</Label><Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div>
-            <div><Label>Contato</Label><Input value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} placeholder="Nome do responsável" /></div>
+            <div><Label>Contato</Label><Input value={formData.contactName} onChange={(e) => setFormData({ ...formData, contactName: e.target.value })} placeholder="Nome do responsável" /></div>
             <div className="form-grid">
               <div><Label>Telefone</Label><Input value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>
               <div><Label>Email</Label><Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
             </div>
             <div><Label>Endereço</Label><Input value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} /></div>
+            <div><Label>Observações</Label><Textarea rows={2} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Informações adicionais, condições de pagamento, prazo de entrega..." /></div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={saving}>{saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}{editingItem ? 'Salvar' : 'Criar'}</Button>

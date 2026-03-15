@@ -1,0 +1,567 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* =========================
+       Helpers gerais
+    ========================= */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validString(value) {
+      return value is string && value.size() > 0;
+    }
+
+    function validOptionalString(value) {
+      return !(value is string) || value.size() >= 0;
+    }
+
+    function validNonNegativeNumber(value) {
+      return value is int || value is float
+        ? value >= 0
+        : false;
+    }
+
+    function validBoolean(value) {
+      return value is bool;
+    }
+
+    function memberPath(restaurantId, uid) {
+      return /databases/$(database)/documents/restaurants/$(restaurantId)/members/$(uid);
+    }
+
+    function memberDoc(restaurantId) {
+      return get(memberPath(restaurantId, request.auth.uid));
+    }
+
+    function isMember(restaurantId) {
+      return signedIn() && exists(memberPath(restaurantId, request.auth.uid));
+    }
+
+    function memberRole(restaurantId) {
+      return isMember(restaurantId) ? memberDoc(restaurantId).data.role : null;
+    }
+
+    function memberActive(restaurantId) {
+      return isMember(restaurantId) &&
+        memberDoc(restaurantId).data.active == true;
+    }
+
+    function isOwner(restaurantId) {
+      return memberActive(restaurantId) && memberRole(restaurantId) == "owner";
+    }
+
+    function isAdmin(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin");
+    }
+
+    function isManager(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin" ||
+         memberRole(restaurantId) == "manager");
+    }
+
+    function canOperate(restaurantId) {
+      return memberActive(restaurantId) &&
+        (memberRole(restaurantId) == "owner" ||
+         memberRole(restaurantId) == "admin" ||
+         memberRole(restaurantId) == "manager" ||
+         memberRole(restaurantId) == "staff");
+    }
+
+    function onlyKeys(allowed) {
+      return request.resource.data.keys().hasOnly(allowed);
+    }
+
+    function requiredKeys(required, allowed) {
+      return request.resource.data.keys().hasAll(required) &&
+             request.resource.data.keys().hasOnly(allowed);
+    }
+
+    function unchangedKeys(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([])
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny(keys);
+    }
+
+    /* =========================
+       /users/{uid}
+       Perfil do usuário
+    ========================= */
+
+    match /users/{uid} {
+      allow read: if isSelf(uid);
+
+      allow create: if isSelf(uid)
+        && requiredKeys(
+          ['email', 'displayName', 'createdAt'],
+          ['email', 'displayName', 'photoURL', 'createdAt', 'lastLoginAt']
+        )
+        && validString(request.resource.data.email)
+        && validString(request.resource.data.displayName);
+
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['displayName', 'photoURL', 'lastLoginAt'])
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validString(request.resource.data.displayName);
+
+      allow delete: if false;
+    }
+
+    /* =========================
+       /restaurants/{restaurantId}
+    ========================= */
+
+    match /restaurants/{restaurantId} {
+      allow read: if isMember(restaurantId) && memberActive(restaurantId);
+
+      allow create: if signedIn()
+        && requiredKeys(
+          ['name', 'ownerUid', 'createdAt'],
+          ['name', 'ownerUid', 'createdAt', 'currency', 'country', 'timezone', 'active']
+        )
+        && request.resource.data.ownerUid == request.auth.uid
+        && validString(request.resource.data.name)
+        && (
+          !('currency' in request.resource.data) ||
+          validString(request.resource.data.currency)
+        )
+        && (
+          !('country' in request.resource.data) ||
+          validString(request.resource.data.country)
+        )
+        && (
+          !('timezone' in request.resource.data) ||
+          validString(request.resource.data.timezone)
+        )
+        && (
+          !('active' in request.resource.data) ||
+          request.resource.data.active is bool
+        );
+
+      allow update: if isOwner(restaurantId)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.keys().hasOnly([
+          'name', 'ownerUid', 'createdAt', 'currency', 'country', 'timezone', 'active'
+        ])
+        && validString(request.resource.data.name);
+
+      allow delete: if isOwner(restaurantId);
+
+      /* =========================
+         /members/{uid}
+      ========================= */
+
+      match /members/{uid} {
+        allow read: if isMember(restaurantId) && memberActive(restaurantId);
+
+        allow create: if isAdmin(restaurantId)
+          && requiredKeys(
+            ['uid', 'email', 'role', 'active', 'createdAt'],
+            ['uid', 'email', 'displayName', 'role', 'active', 'createdAt']
+          )
+          && request.resource.data.uid == uid
+          && validString(request.resource.data.email)
+          && request.resource.data.role in ['owner', 'admin', 'manager', 'staff']
+          && request.resource.data.active is bool;
+
+        allow update: if isAdmin(restaurantId)
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.keys().hasOnly([
+            'uid', 'email', 'displayName', 'role', 'active', 'createdAt'
+          ])
+          && request.resource.data.role in ['owner', 'admin', 'manager', 'staff']
+          && request.resource.data.active is bool
+          // impede trocar o último owner sem controle externo
+          && !(
+            resource.data.role == 'owner' &&
+            request.resource.data.role != 'owner' &&
+            uid == request.auth.uid
+          );
+
+        allow delete: if isOwner(restaurantId) && uid != request.auth.uid;
+      }
+
+      /* =========================
+         Ingredients
+      ========================= */
+
+      match /ingredients/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'unit', 'costPerUnit', 'createdAt'],
+            ['name', 'unit', 'costPerUnit', 'supplierId', 'notes', 'createdAt', 'updatedAt', 'active']
+          )
+          && validString(request.resource.data.name)
+          && validString(request.resource.data.unit)
+          && validNonNegativeNumber(request.resource.data.costPerUnit)
+          && (
+            !('supplierId' in request.resource.data) ||
+            request.resource.data.supplierId == null ||
+            validString(request.resource.data.supplierId)
+          )
+          && (
+            !('notes' in request.resource.data) ||
+            request.resource.data.notes == null ||
+            request.resource.data.notes is string
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Suppliers
+      ========================= */
+
+      match /suppliers/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'createdAt'],
+            ['name', 'contactName', 'email', 'phone', 'notes', 'createdAt', 'updatedAt', 'active']
+          )
+          && validString(request.resource.data.name)
+          && (
+            !('contactName' in request.resource.data) ||
+            request.resource.data.contactName == null ||
+            request.resource.data.contactName is string
+          )
+          && (
+            !('email' in request.resource.data) ||
+            request.resource.data.email == null ||
+            request.resource.data.email is string
+          )
+          && (
+            !('phone' in request.resource.data) ||
+            request.resource.data.phone == null ||
+            request.resource.data.phone is string
+          )
+          && (
+            !('notes' in request.resource.data) ||
+            request.resource.data.notes == null ||
+            request.resource.data.notes is string
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Recipes
+      ========================= */
+
+      match /recipes/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'yieldQuantity', 'totalCost', 'createdAt'],
+            ['name', 'description', 'yieldQuantity', 'yieldUnit', 'items', 'totalCost', 'costPerPortion', 'createdAt', 'updatedAt', 'active']
+          )
+          && validString(request.resource.data.name)
+          && validNonNegativeNumber(request.resource.data.yieldQuantity)
+          && validNonNegativeNumber(request.resource.data.totalCost)
+          && (
+            !('costPerPortion' in request.resource.data) ||
+            request.resource.data.costPerPortion == null ||
+            validNonNegativeNumber(request.resource.data.costPerPortion)
+          )
+          && (
+            !('yieldUnit' in request.resource.data) ||
+            request.resource.data.yieldUnit == null ||
+            request.resource.data.yieldUnit is string
+          )
+          && (
+            !('description' in request.resource.data) ||
+            request.resource.data.description == null ||
+            request.resource.data.description is string
+          )
+          && (
+            !('items' in request.resource.data) ||
+            request.resource.data.items is list
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Stock movements
+      ========================= */
+
+      match /stock_movements/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create: if canOperate(restaurantId)
+          && requiredKeys(
+            ['ingredientId', 'type', 'quantity', 'createdAt'],
+            ['ingredientId', 'type', 'quantity', 'unitCost', 'notes', 'createdAt', 'createdBy']
+          )
+          && validString(request.resource.data.ingredientId)
+          && request.resource.data.type in ['in', 'out', 'adjustment']
+          && validNonNegativeNumber(request.resource.data.quantity)
+          && (
+            !('unitCost' in request.resource.data) ||
+            request.resource.data.unitCost == null ||
+            validNonNegativeNumber(request.resource.data.unitCost)
+          )
+          && (
+            !('notes' in request.resource.data) ||
+            request.resource.data.notes == null ||
+            request.resource.data.notes is string
+          )
+          && (
+            !('createdBy' in request.resource.data) ||
+            request.resource.data.createdBy == request.auth.uid
+          );
+
+        allow update: if isManager(restaurantId);
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Productions
+      ========================= */
+
+      match /productions/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if canOperate(restaurantId)
+          && requiredKeys(
+            ['recipeId', 'quantityProduced', 'totalProductionCost', 'createdAt'],
+            ['recipeId', 'quantityProduced', 'totalProductionCost', 'notes', 'createdAt', 'createdBy']
+          )
+          && validString(request.resource.data.recipeId)
+          && validNonNegativeNumber(request.resource.data.quantityProduced)
+          && validNonNegativeNumber(request.resource.data.totalProductionCost)
+          && (
+            !('notes' in request.resource.data) ||
+            request.resource.data.notes == null ||
+            request.resource.data.notes is string
+          )
+          && (
+            !('createdBy' in request.resource.data) ||
+            request.resource.data.createdBy == request.auth.uid
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Sales
+      ========================= */
+
+      match /sales/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if canOperate(restaurantId)
+          && requiredKeys(
+            ['createdAt', 'totalAmount'],
+            ['createdAt', 'totalAmount', 'items', 'paymentMethod', 'notes', 'createdBy']
+          )
+          && validNonNegativeNumber(request.resource.data.totalAmount)
+          && (
+            !('items' in request.resource.data) ||
+            request.resource.data.items is list
+          )
+          && (
+            !('paymentMethod' in request.resource.data) ||
+            request.resource.data.paymentMethod == null ||
+            request.resource.data.paymentMethod is string
+          )
+          && (
+            !('notes' in request.resource.data) ||
+            request.resource.data.notes == null ||
+            request.resource.data.notes is string
+          )
+          && (
+            !('createdBy' in request.resource.data) ||
+            request.resource.data.createdBy == request.auth.uid
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Menu items
+      ========================= */
+
+      match /menu_items/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'price', 'createdAt'],
+            ['name', 'price', 'categoryId', 'recipeId', 'description', 'active', 'createdAt', 'updatedAt']
+          )
+          && validString(request.resource.data.name)
+          && validNonNegativeNumber(request.resource.data.price)
+          && (
+            !('categoryId' in request.resource.data) ||
+            request.resource.data.categoryId == null ||
+            request.resource.data.categoryId is string
+          )
+          && (
+            !('recipeId' in request.resource.data) ||
+            request.resource.data.recipeId == null ||
+            request.resource.data.recipeId is string
+          )
+          && (
+            !('description' in request.resource.data) ||
+            request.resource.data.description == null ||
+            request.resource.data.description is string
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Menu categories
+      ========================= */
+
+      match /menu_categories/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'createdAt'],
+            ['name', 'sortOrder', 'active', 'createdAt', 'updatedAt']
+          )
+          && validString(request.resource.data.name)
+          && (
+            !('sortOrder' in request.resource.data) ||
+            request.resource.data.sortOrder == null ||
+            request.resource.data.sortOrder is int
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Resale products
+      ========================= */
+
+      match /resale_products/{docId} {
+        allow read: if canOperate(restaurantId);
+
+        allow create, update: if isManager(restaurantId)
+          && requiredKeys(
+            ['name', 'cost', 'salePrice', 'createdAt'],
+            ['name', 'cost', 'salePrice', 'supplierId', 'stockQuantity', 'sku', 'active', 'createdAt', 'updatedAt']
+          )
+          && validString(request.resource.data.name)
+          && validNonNegativeNumber(request.resource.data.cost)
+          && validNonNegativeNumber(request.resource.data.salePrice)
+          && (
+            !('supplierId' in request.resource.data) ||
+            request.resource.data.supplierId == null ||
+            request.resource.data.supplierId is string
+          )
+          && (
+            !('stockQuantity' in request.resource.data) ||
+            request.resource.data.stockQuantity == null ||
+            validNonNegativeNumber(request.resource.data.stockQuantity)
+          )
+          && (
+            !('sku' in request.resource.data) ||
+            request.resource.data.sku == null ||
+            request.resource.data.sku is string
+          )
+          && (
+            !('active' in request.resource.data) ||
+            request.resource.data.active is bool
+          );
+
+        allow delete: if isAdmin(restaurantId);
+      }
+
+      /* =========================
+         Settings
+      ========================= */
+
+      match /settings/{docId} {
+        allow read: if isManager(restaurantId);
+
+        allow create, update: if isAdmin(restaurantId)
+          && request.resource.data.keys().hasOnly([
+            'currency',
+            'country',
+            'timezone',
+            'lowStockAlerts',
+            'taxMode',
+            'updatedAt'
+          ])
+          && (
+            !('currency' in request.resource.data) ||
+            request.resource.data.currency == null ||
+            request.resource.data.currency is string
+          )
+          && (
+            !('country' in request.resource.data) ||
+            request.resource.data.country == null ||
+            request.resource.data.country is string
+          )
+          && (
+            !('timezone' in request.resource.data) ||
+            request.resource.data.timezone == null ||
+            request.resource.data.timezone is string
+          )
+          && (
+            !('lowStockAlerts' in request.resource.data) ||
+            request.resource.data.lowStockAlerts == null ||
+            request.resource.data.lowStockAlerts is bool
+          )
+          && (
+            !('taxMode' in request.resource.data) ||
+            request.resource.data.taxMode == null ||
+            request.resource.data.taxMode is string
+          );
+
+        allow delete: if isOwner(restaurantId);
+      }
+    }
+
+    /* =========================
+       Bloqueio default
+    ========================= */
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
