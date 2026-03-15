@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
 import {
   getSuppliers, createSupplier, updateSupplier, deleteSupplier,
-  getInvoicesBySupplier,
+  getInvoicesBySupplier, getInvoices,
 } from '../lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,10 +73,28 @@ const SuppliersPage = () => {
 
   useEffect(() => { if (tenantId) loadData(); }, [tenantId]);
 
+  const [invoiceSummary, setInvoiceSummary] = useState({});
+
   const loadData = async () => {
     try {
-      const data = await getSuppliers(tenantId);
+      const [data, allInvoices] = await Promise.all([
+        getSuppliers(tenantId),
+        getInvoices(tenantId).catch(() => []),
+      ]);
       setSuppliers(data);
+      const summary = {};
+      for (const inv of allInvoices) {
+        const sid = inv.supplierId;
+        if (!sid) continue;
+        if (!summary[sid]) summary[sid] = { totalSpent: 0, totalInvoices: 0, lastDate: null };
+        summary[sid].totalInvoices += 1;
+        summary[sid].totalSpent += inv.total || inv.totalValue || 0;
+        const invDate = inv.issueDate || inv.createdAt;
+        if (invDate && (!summary[sid].lastDate || invDate > summary[sid].lastDate)) {
+          summary[sid].lastDate = invDate;
+        }
+      }
+      setInvoiceSummary(summary);
     } catch {
       toast({ title: 'Erro', description: 'Erro ao carregar fornecedores', variant: 'destructive' });
     } finally {
@@ -469,7 +487,17 @@ const SuppliersPage = () => {
                   </div>
                 )}
               </div>
-              <p className="text-xs text-emerald-600 mt-3">Clique para ver detalhes e notas fiscais</p>
+              {(() => {
+                const sm = invoiceSummary[s.id];
+                if (!sm || sm.totalInvoices === 0) return <p className="text-xs text-muted-foreground mt-3">Sem notas fiscais registradas</p>;
+                return (
+                  <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-3 gap-2 text-xs text-center">
+                    <div><p className="text-muted-foreground">Notas</p><p className="font-semibold text-foreground">{sm.totalInvoices}</p></div>
+                    <div><p className="text-muted-foreground">Total gasto</p><p className="font-semibold text-emerald-700">{formatCurrency(sm.totalSpent)}</p></div>
+                    <div><p className="text-muted-foreground">Última NF</p><p className="font-semibold text-foreground">{sm.lastDate ? (typeof sm.lastDate === 'string' ? sm.lastDate.slice(0, 10) : new Date(sm.lastDate.seconds ? sm.lastDate.seconds * 1000 : sm.lastDate).toLocaleDateString('pt-BR')) : '-'}</p></div>
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>

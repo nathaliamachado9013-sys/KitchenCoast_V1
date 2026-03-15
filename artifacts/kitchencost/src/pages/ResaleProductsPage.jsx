@@ -18,7 +18,7 @@ const ResaleProductsPage = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
-  const emptyForm = { name: '', category: '', purchasePrice: '', salePrice: '', unit: 'unidade', currentStock: '0', minStock: '0', supplier: '' };
+  const emptyForm = { name: '', category: '', purchasePrice: '', salePrice: '', unit: 'unidade', stockQuantity: '0', minStock: '0', supplier: '' };
   const [formData, setFormData] = useState(emptyForm);
 
   useEffect(() => { if (restaurant?.restaurantId) loadData(); }, [restaurant]);
@@ -31,7 +31,7 @@ const ResaleProductsPage = () => {
 
   const openModal = (item = null) => {
     setEditingItem(item);
-    setFormData(item ? { name: item.name || '', category: item.category || '', purchasePrice: item.purchasePrice?.toString() || '', salePrice: item.salePrice?.toString() || '', unit: item.unit || 'unidade', currentStock: item.currentStock?.toString() || '0', minStock: item.minStock?.toString() || '0', supplier: item.supplier || '' } : emptyForm);
+    setFormData(item ? { name: item.name || '', category: item.category || '', purchasePrice: (item.cost ?? item.purchasePrice ?? 0).toString(), salePrice: item.salePrice?.toString() || '', unit: item.unit || 'unidade', stockQuantity: (item.stockQuantity ?? item.currentStock ?? 0).toString(), minStock: item.minStock?.toString() || '0', supplier: item.supplier || '' } : emptyForm);
     setModalOpen(true);
   };
 
@@ -40,7 +40,7 @@ const ResaleProductsPage = () => {
     if (!formData.name || !formData.purchasePrice || !formData.salePrice) { toast({ title: 'Erro', description: 'Nome, custo de compra e preço de venda são obrigatórios', variant: 'destructive' }); return; }
     setSaving(true);
     try {
-      const data = { name: formData.name, category: formData.category, purchasePrice: parseFloat(formData.purchasePrice) || 0, salePrice: parseFloat(formData.salePrice) || 0, unit: formData.unit, currentStock: parseFloat(formData.currentStock) || 0, minStock: parseFloat(formData.minStock) || 0, supplier: formData.supplier };
+      const data = { name: formData.name, category: formData.category, purchasePrice: parseFloat(formData.purchasePrice) || 0, salePrice: parseFloat(formData.salePrice) || 0, unit: formData.unit, stockQuantity: parseFloat(formData.stockQuantity) || 0, minStock: parseFloat(formData.minStock) || 0, supplier: formData.supplier };
       if (editingItem) { await updateResaleProduct(restaurant.restaurantId, editingItem.id, data); toast({ title: 'Produto atualizado!' }); }
       else { await createResaleProduct(restaurant.restaurantId, data); toast({ title: 'Produto criado!' }); }
       setModalOpen(false); loadData();
@@ -81,17 +81,28 @@ const ResaleProductsPage = () => {
                   <Button variant="ghost" size="icon" className="w-7 h-7 text-destructive" onClick={() => handleDelete(p)}><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Custo de compra</span><span>{formatCurrency(p.purchasePrice || 0, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Preço de venda</span><span className="font-medium">{formatCurrency(p.salePrice || 0, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Margem</span><span className={`font-semibold flex items-center gap-1 ${marginColor(p.margin || 0)}`}><TrendingUp className="w-3.5 h-3.5" />{formatNumber(p.margin || 0, 1)}%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Lucro/un</span><span className="text-emerald-600 font-medium">{formatCurrency(p.profitPerUnit || 0, currency)}</span></div>
-              </div>
-              {p.currentStock !== undefined && (
-                <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-                  Estoque: {p.currentStock} {p.unit} {p.currentStock <= p.minStock ? '⚠️ Baixo' : ''}
-                </div>
-              )}
+              {(() => {
+                const cost = p.cost ?? p.purchasePrice ?? 0;
+                const qty = p.stockQuantity ?? p.currentStock ?? 0;
+                const isLow = qty <= (p.minStock || 0);
+                const isCritical = qty <= 0;
+                const stCls = isCritical ? 'bg-red-100 text-red-700' : isLow ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700';
+                const stLabel = isCritical ? 'Crítico' : isLow ? 'Baixo' : 'OK';
+                return (
+                  <>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Custo médio</span><span>{formatCurrency(p.averageCost || cost, currency)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Preço de venda</span><span className="font-medium">{formatCurrency(p.salePrice || 0, currency)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Margem</span><span className={`font-semibold flex items-center gap-1 ${marginColor(p.margin || 0)}`}><TrendingUp className="w-3.5 h-3.5" />{formatNumber(p.margin || 0, 1)}%</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Lucro/un</span><span className="text-emerald-600 font-medium">{formatCurrency(p.profitPerUnit || 0, currency)}</span></div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Estoque: {formatNumber(qty)} {p.unit || 'un'}</span>
+                      <span className={`px-2 py-0.5 rounded font-medium ${stCls}`}>{stLabel}</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -117,7 +128,7 @@ const ResaleProductsPage = () => {
               </div>
             )}
             <div className="form-grid">
-              <div><Label>Estoque Atual</Label><Input type="number" step="0.1" value={formData.currentStock} onChange={(e) => setFormData({ ...formData, currentStock: e.target.value })} /></div>
+              <div><Label>Estoque Atual</Label><Input type="number" step="0.1" value={formData.stockQuantity} onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })} /></div>
               <div><Label>Estoque Mínimo</Label><Input type="number" step="0.1" value={formData.minStock} onChange={(e) => setFormData({ ...formData, minStock: e.target.value })} /></div>
             </div>
             <div><Label>Fornecedor</Label><Input value={formData.supplier} onChange={(e) => setFormData({ ...formData, supplier: e.target.value })} /></div>

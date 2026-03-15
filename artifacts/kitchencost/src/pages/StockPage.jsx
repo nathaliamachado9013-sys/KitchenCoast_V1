@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
-import { getIngredients, getStockMovements, createStockEntry, createStockExit, getInventoryValue } from '../lib/firestore';
+import { getIngredients, getResaleProducts, getStockMovements, createStockEntry, createStockExit, getInventoryValue } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { Plus, Loader2, Package, ArrowUpCircle, ArrowDownCircle, AlertTriangle, 
 const StockPage = () => {
   const { restaurant, currency } = useAuth();
   const [ingredients, setIngredients] = useState([]);
+  const [resaleProducts, setResaleProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [inventoryValue, setInventoryValue] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,12 +29,14 @@ const StockPage = () => {
 
   const loadData = async () => {
     try {
-      const [ings, movs, inv] = await Promise.all([
-        getIngredients(restaurant.restaurantId),
-        getStockMovements(restaurant.restaurantId),
-        getInventoryValue(restaurant.restaurantId),
+      const rid = restaurant.restaurantId || restaurant.id;
+      const [ings, resale, movs, inv] = await Promise.all([
+        getIngredients(rid),
+        getResaleProducts(rid),
+        getStockMovements(rid),
+        getInventoryValue(rid),
       ]);
-      setIngredients(ings); setMovements(movs); setInventoryValue(inv);
+      setIngredients(ings); setResaleProducts(resale); setMovements(movs); setInventoryValue(inv);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar estoque', variant: 'destructive' }); }
     finally { setLoading(false); }
   };
@@ -85,7 +88,10 @@ const StockPage = () => {
         </div>
         <div className="stat-card">
           <div className="flex items-center gap-3 mb-2"><AlertTriangle className="w-5 h-5 text-amber-600" /><span className="text-sm text-muted-foreground">Estoque Baixo</span></div>
-          <div className="text-2xl font-bold">{ingredients.filter(i => (i.currentStock || 0) <= (i.minStock || 0)).length}</div>
+          <div className="text-2xl font-bold">
+            {ingredients.filter(i => (i.currentStock || 0) <= (i.minStock || 0)).length +
+             resaleProducts.filter(p => (p.stockQuantity || p.currentStock || 0) <= (p.minStock || 0)).length}
+          </div>
         </div>
       </div>
 
@@ -100,24 +106,52 @@ const StockPage = () => {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr className="text-left">
-                    <th className="px-4 py-3 font-semibold">Ingrediente</th>
+                    <th className="px-4 py-3 font-semibold">Item</th>
+                    <th className="px-4 py-3 font-semibold">Tipo</th>
                     <th className="px-4 py-3 font-semibold">Estoque Atual</th>
                     <th className="px-4 py-3 font-semibold">Estoque Mínimo</th>
-                    <th className="px-4 py-3 font-semibold">Custo/Unid</th>
+                    <th className="px-4 py-3 font-semibold">Custo Médio/Unid</th>
                     <th className="px-4 py-3 font-semibold">Valor em Estoque</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {ingredients.length === 0 && resaleProducts.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground"><Package className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>Nenhum item em estoque</p></td></tr>
+                  ) : null}
                   {ingredients.map(item => {
                     const st = getStockStatus(item);
+                    const avgCost = item.averageCost || item.costPerUnit || 0;
                     return (
-                      <tr key={item.id} className="border-t border-border/50 hover:bg-muted/20">
+                      <tr key={`ing-${item.id}`} className="border-t border-border/50 hover:bg-muted/20">
                         <td className="px-4 py-3 font-medium">{item.name}</td>
+                        <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">Ingrediente</span></td>
                         <td className="px-4 py-3">{formatNumber(item.currentStock || 0)} {item.unit}</td>
                         <td className="px-4 py-3 text-muted-foreground">{formatNumber(item.minStock || 0)} {item.unit}</td>
-                        <td className="px-4 py-3">{formatCurrency(item.costPerUnit, currency)}</td>
-                        <td className="px-4 py-3 font-medium">{formatCurrency((item.currentStock || 0) * (item.costPerUnit || 0), currency)}</td>
+                        <td className="px-4 py-3">{formatCurrency(avgCost, currency)}</td>
+                        <td className="px-4 py-3 font-medium">{formatCurrency((item.currentStock || 0) * avgCost, currency)}</td>
+                        <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.cls}`}>{st.label}</span></td>
+                      </tr>
+                    );
+                  })}
+                  {resaleProducts.map(item => {
+                    const qty = item.stockQuantity || item.currentStock || 0;
+                    const avgCost = item.averageCost || item.cost || 0;
+                    const isLow = qty <= (item.minStock || 0);
+                    const isCritical = qty <= 0;
+                    const st = isCritical
+                      ? { label: 'Crítico', cls: 'bg-red-100 text-red-700' }
+                      : isLow
+                        ? { label: 'Baixo', cls: 'bg-amber-100 text-amber-700' }
+                        : { label: 'OK', cls: 'bg-green-100 text-green-700' };
+                    return (
+                      <tr key={`res-${item.id}`} className="border-t border-border/50 hover:bg-muted/20">
+                        <td className="px-4 py-3 font-medium">{item.name}</td>
+                        <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs font-medium bg-violet-50 text-violet-700">Revenda</span></td>
+                        <td className="px-4 py-3">{formatNumber(qty)} {item.unit || 'un'}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{formatNumber(item.minStock || 0)} {item.unit || 'un'}</td>
+                        <td className="px-4 py-3">{formatCurrency(avgCost, currency)}</td>
+                        <td className="px-4 py-3 font-medium">{formatCurrency(qty * avgCost, currency)}</td>
                         <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.cls}`}>{st.label}</span></td>
                       </tr>
                     );

@@ -216,9 +216,18 @@ export const getLowStockIngredients = async (restaurantId) => {
 };
 
 export const getInventoryValue = async (restaurantId) => {
-  const ingredients = await getIngredients(restaurantId);
-  const total = ingredients.reduce((sum, i) => sum + (i.currentStock || 0) * (i.costPerUnit || 0), 0);
-  return { totalValue: total, itemCount: ingredients.length };
+  const [ingredients, resaleProducts] = await Promise.all([
+    getIngredients(restaurantId),
+    getResaleProducts(restaurantId),
+  ]);
+  const ingTotal = ingredients.reduce((sum, i) => sum + (i.currentStock || 0) * (i.averageCost || i.costPerUnit || 0), 0);
+  const resaleTotal = resaleProducts.reduce((sum, p) => sum + (p.stockQuantity || p.currentStock || 0) * (p.averageCost || p.cost || 0), 0);
+  return {
+    totalValue: ingTotal + resaleTotal,
+    itemCount: ingredients.length + resaleProducts.length,
+    ingredientsCount: ingredients.length,
+    resaleCount: resaleProducts.length,
+  };
 };
 
 // ====================== RECIPES ======================
@@ -361,12 +370,23 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
   const ingredient = ingredients.find(i => i.id === data.ingredientId);
   if (!ingredient) throw new Error('Ingrediente não encontrado');
 
-  const newStock = (ingredient.currentStock || 0) + data.quantity;
-  const newCost = data.unitCost !== undefined && data.unitCost !== null ? data.unitCost : ingredient.costPerUnit;
+  const currentQty = ingredient.currentStock || 0;
+  const currentAvgCost = ingredient.averageCost || ingredient.costPerUnit || 0;
+  const newStock = currentQty + data.quantity;
+
+  let newCost;
+  if (data.unitCost !== undefined && data.unitCost !== null && data.unitCost > 0) {
+    const currentTotalValue = currentQty * currentAvgCost;
+    const incomingValue = data.quantity * data.unitCost;
+    newCost = newStock > 0 ? (currentTotalValue + incomingValue) / newStock : data.unitCost;
+  } else {
+    newCost = currentAvgCost;
+  }
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', data.ingredientId), {
     currentStock: newStock,
     costPerUnit: newCost,
+    averageCost: newCost,
     updatedAt: serverTimestamp(),
   });
 
@@ -376,7 +396,8 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
-    unitCost: newCost,
+    unitCost: data.unitCost || currentAvgCost,
+    averageCostAfter: newCost,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
