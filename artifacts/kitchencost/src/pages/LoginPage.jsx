@@ -17,7 +17,7 @@ const GoogleIcon = () => (
 );
 
 const LoginPage = () => {
-  const { loginWithEmail, loginWithGoogle, registerWithEmail, redirectError, redirectLoading } = useAuth();
+  const { loginWithEmail, loginWithGoogle, registerWithEmail } = useAuth();
   const { executeRecaptcha } = useGoogleReCaptcha();
   const { toast } = useToast();
   const [mode, setMode] = useState('login');
@@ -29,7 +29,6 @@ const LoginPage = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      // reCAPTCHA v3 é opcional — não bloqueia o login se não carregar
       if (executeRecaptcha) {
         await executeRecaptcha(mode === 'login' ? 'login' : 'register').catch(() => {});
       }
@@ -53,7 +52,7 @@ const LoginPage = () => {
           : code === 'auth/network-request-failed'
           ? 'Erro de rede. Verifique sua conexão.'
           : code
-          ? `Erro Firebase: ${code}`
+          ? `Erro: ${code}`
           : 'Erro desconhecido. Tente novamente.';
       toast({ title: 'Erro de autenticação', description: msg, variant: 'destructive' });
     } finally {
@@ -65,14 +64,30 @@ const LoginPage = () => {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-      // Page will redirect to Google — execution stops here
+      // onAuthStateChanged in AuthContext handles the rest
     } catch (error) {
-      console.error('Google redirect initiation error:', error?.code, error?.message);
+      console.error('Google sign-in error:', error?.code, error?.message);
+      const code = error?.code || '';
+      const msg =
+        code === 'auth/popup-blocked'
+          ? 'Popup bloqueado pelo browser. Permita popups para este site e tente novamente.'
+          : code === 'auth/popup-closed-by-user'
+          ? 'Login cancelado. Feche o popup do Google antes de tentar novamente.'
+          : code === 'auth/cancelled-popup-request'
+          ? 'Já existe um popup aberto. Aguarde ou recarregue a página.'
+          : code === 'auth/network-request-failed'
+          ? 'Erro de rede. Verifique sua conexão.'
+          : code === 'auth/firebase-app-check-token-is-invalid'
+          ? 'Erro de segurança (App Check). Recarregue a página e tente novamente.'
+          : code
+          ? `Erro Google: ${code}`
+          : 'Não foi possível fazer login com Google. Tente novamente.';
       toast({
-        title: 'Erro ao iniciar login com Google',
-        description: error?.message || 'Tente novamente.',
+        title: 'Erro no login com Google',
+        description: msg,
         variant: 'destructive',
       });
+    } finally {
       setGoogleLoading(false);
     }
   };
@@ -92,17 +107,11 @@ const LoginPage = () => {
           variant="outline"
           className="w-full mb-2 gap-3 h-11"
           onClick={handleGoogle}
-          disabled={googleLoading || loading || redirectLoading}
+          disabled={googleLoading || loading}
         >
-          {(googleLoading || redirectLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
-          {redirectLoading ? 'A verificar...' : 'Continuar com Google'}
+          {googleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
+          {googleLoading ? 'Aguardando Google...' : 'Continuar com Google'}
         </Button>
-
-        {redirectError && (
-          <p className="text-xs text-destructive text-center mb-3 px-2">
-            Erro Google: {redirectError}
-          </p>
-        )}
 
         <div className="relative mb-4">
           <div className="absolute inset-0 flex items-center">

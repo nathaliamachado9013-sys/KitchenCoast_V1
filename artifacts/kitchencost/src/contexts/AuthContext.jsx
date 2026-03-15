@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signOut,
   onAuthStateChanged,
   updateProfile,
@@ -17,8 +16,6 @@ export const AuthProvider = ({ children }) => {
   const [restaurant, setRestaurant] = useState(null);
   const [memberRole, setMemberRole] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [redirectLoading, setRedirectLoading] = useState(false);
-  const [redirectError, setRedirectError] = useState(null);
 
   const currency = restaurant?.currency || 'BRL';
 
@@ -31,7 +28,6 @@ export const AuthProvider = ({ children }) => {
     try {
       const r = await getRestaurantByUserId(uid);
       setRestaurant(r);
-
       if (r?.id || r?.restaurantId) {
         const rid = r.id || r.restaurantId;
         const member = await getMember(rid, uid);
@@ -43,38 +39,6 @@ export const AuthProvider = ({ children }) => {
       setRestaurant(null);
       setMemberRole(null);
     }
-  }, []);
-
-  useEffect(() => {
-    const wasRedirectPending = sessionStorage.getItem('google_redirect_pending') === '1';
-    if (wasRedirectPending) {
-      sessionStorage.removeItem('google_redirect_pending');
-    }
-
-    setRedirectLoading(true);
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) {
-          // User signed in via redirect — onAuthStateChanged will handle the rest
-        }
-        setRedirectError(null);
-      })
-      .catch((error) => {
-        const code = error?.code || '';
-        console.error('Google redirect error:', {
-          code,
-          message: error?.message,
-          customData: error?.customData,
-          serverResponse: error?.customData?.serverResponse,
-        });
-        // Only show error to user if they actually triggered a Google redirect
-        if (wasRedirectPending) {
-          setRedirectError(`${code || 'erro desconhecido'} — ${error?.message || ''}`);
-        }
-      })
-      .finally(() => {
-        setRedirectLoading(false);
-      });
   }, []);
 
   useEffect(() => {
@@ -102,11 +66,11 @@ export const AuthProvider = ({ children }) => {
     return cred.user;
   };
 
+  // signInWithPopup works in iframes, mobile browsers, and environments
+  // where third-party cookies are restricted (unlike signInWithRedirect).
   const loginWithGoogle = async () => {
-    setRedirectError(null);
-    sessionStorage.setItem('google_redirect_pending', '1');
-    await signInWithRedirect(auth, googleProvider);
-    // Page will redirect — no return value
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
   };
 
   const logout = async () => {
@@ -129,9 +93,7 @@ export const AuthProvider = ({ children }) => {
       user,
       restaurant,
       currency,
-      loading: loading || redirectLoading,
-      redirectLoading,
-      redirectError,
+      loading,
       memberRole,
       isOwner,
       isAdmin,
