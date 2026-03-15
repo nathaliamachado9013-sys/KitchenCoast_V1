@@ -1,0 +1,118 @@
+Configurar seu canal de e-mail para OAuth com o Gmail
+
+Nesta página, explicamos como usar Google Cloud para criar credenciais OAuth e configurar seu canal de e-mail da Contact Center AI Platform (CCAI Platform).
+
+Antes de começar
+Verifique se você tem o seguinte:
+
+Uma conta do Google Cloud . Para mais informações, consulte Começar a usar o Google Cloud.
+
+Um projeto do Google Cloud . Saiba mais em Como criar e gerenciar projetos.
+
+Além disso, verifique se o faturamento foi ativado para o projeto Google Cloud . Para mais informações, consulte Verificar o status de faturamento dos seus projetos.
+
+Crie credenciais do OAuth.
+Use Google Cloud para criar credenciais do OAuth, ou seja, o ID e a chave secreta do cliente. Se você ainda não configurou uma tela de consentimento, faça isso antes de criar credenciais do OAuth. Para mais informações sobre o OAuth, consulte Como usar o OAuth 2.0 para acessar as APIs do Google.
+
+Para criar credenciais OAuth e configurar a tela de permissão, faça o seguinte:
+
+No console do Google Cloud , acesse o painel do seletor de projetos e selecione o projeto que você quer usar para criar credenciais do OAuth.
+
+
+Painel do seletor de projetos
+
+Acesse a página APIs e serviços e, no menu de navegação, clique em Credenciais.
+
+
+Credenciais
+
+Se você ainda não configurou a tela de consentimento para este projeto Google Cloud, o botão Configurar tela de consentimento vai aparecer. Nesse caso, configure a tela de consentimento usando o procedimento a seguir. Caso contrário, pule para a etapa 4.
+
+Clique em Configurar tela de consentimento. A página Tela de permissão OAuth é exibida.
+
+Dependendo do seu caso de uso, selecione Interno ou Externo e clique em Criar. O painel Tela de permissão OAuth é exibido.
+
+Insira as informações na página Informações do app de acordo com as instruções na tela e clique em Salvar e continuar. O painel Escopos é exibido.
+
+Clique em Adicionar ou remover escopos. O painel Atualizar escopos selecionados aparece.
+
+Selecione o escopo ou os escopos adequados para seu caso de uso e clique em Atualizar.
+
+Clique em Salvar e continuar. O painel Usuários de teste é exibido.
+
+Se quiser adicionar usuários para testar o acesso ao app, clique em Adicionar usuários. O painel Adicionar usuários é exibido.
+
+No campo vazio, adicione um ou mais endereços de e-mail de contas do Google e clique em Adicionar.
+
+Clique em Salvar e continuar. O painel Resumo é exibido.
+
+Revise as informações da tela de permissão OAuth e clique em Voltar ao painel.
+
+Se quiser publicar o app na produção agora, clique em Publicar app e em Confirmar na caixa de diálogo de confirmação. Sua tela de consentimento está configurada.
+
+No menu de navegação, clique em Credenciais.
+
+Clique em Criar credenciais e em ID do cliente do OAuth.
+
+No campo Tipo de aplicativo, clique em Aplicativo da Web.
+
+No campo Nome, insira um nome para o cliente.
+
+Na área Origens JavaScript autorizadas, clique em Adicionar IRI.
+
+No campo URIs, insira https://TENANT_NAME.ccaiplatform.com, substituindo TENANT_NAME pelo nome do seu locatário.
+
+Na área URIs de redirecionamento autorizados, clique em Adicionar URI.
+
+No campo URIs, insira https://TENANT_NAME.ccaiplatform.com/v1/email_accounts/oauth_callback, substituindo TENANT_NAME pelo nome do seu locatário.
+
+Clique em Criar. A caixa de diálogo Cliente OAuth criado é exibida.
+
+Clique em Baixar JSON para salvar no seu computador um arquivo JSON com seu ID e chave secreta do cliente e clique em OK.
+
+Importante: mantenha esse arquivo JSON em um local seguro, já que ele contém suas credenciais do OAuth.
+Receber o ID e a chave secreta do cliente
+Depois de criar credenciais do OAuth, você pode acessar o ID e a chave secreta do cliente a qualquer momento.
+
+Para conseguir o ID e a chave secreta do cliente, faça o seguinte:
+
+No console do Google Cloud , acesse a página APIs e serviços. No menu de navegação, clique em Credenciais.
+
+
+Credenciais
+
+Na área IDs do cliente OAuth 2.0, clique no cliente para o qual você quer o ID do cliente e chave secreta do cliente. O ID e a chave secreta do cliente são mostrados na área Informações adicionais.
+
+Configurar as definições de SSO para o canal de e-mail
+Use o ID e a chave secreta do cliente que você criou em Criar credenciais do OAuth para configurar o logon único (SSO) do canal de e-mail.
+
+Para configurar as opções de SSO, faça o seguinte:
+
+No portal da plataforma CCAI, clique em menu Menu e em Configurações > Configurações do desenvolvedor.
+
+Acesse o painel Gerenciamento de contas de e-mail e clique em Gerenciar conta de e-mail.
+
+Na página Gerenciamento de contas de e-mail, clique em SSO de e-mail.
+
+No painel SSO por e-mail, configure as opções conforme mostrado na lista a seguir:
+
+URL de autorização. Insira https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account consent.
+
+Importante: inclua o espaço antes de consent.
+URL do token. Insira https://oauth2.googleapis.com/token.
+
+ID do cliente. Insira o ID do cliente que você criou em Criar credenciais do OAuth. Se você não salvou o ID do cliente, consulte Receber o ID e a chave secreta do cliente.
+
+Chave secreta do cliente. Insira a chave secreta do cliente criada em Criar credenciais do OAuth. Se você não salvou a chave secreta do cliente, consulte Receber o ID do cliente e a chave secreta do cliente.
+
+Escopo. Insira https://mail.google.com/.
+
+Estado. Deixe esse campo em branco.
+
+Tipo de acesso. Insira offline.
+
+Tipo de concessão. Insira Authorization Code.
+
+Desmarque a caixa de seleção Incluir o tipo de concessão como parte do URL de autorização e do URL do token.
+
+Marque a caixa de seleção Incluir o URL de redirecionamento como parte do URL de autorização e do URL de token e clique em Salvar. Seu canal de e-mail está configurado para OAuth.
