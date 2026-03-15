@@ -39,15 +39,23 @@ const LoginPage = () => {
         await registerWithEmail(formData.email, formData.password, formData.name);
       }
     } catch (error) {
+      console.error('Auth error:', error?.code, error?.message);
+      const code = error?.code || '';
       const msg =
-        error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential'
+        code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential'
           ? 'Email ou senha incorretos'
-          : error.code === 'auth/email-already-in-use'
+          : code === 'auth/email-already-in-use'
           ? 'Este email já está em uso'
-          : error.code === 'auth/weak-password'
+          : code === 'auth/weak-password'
           ? 'A senha deve ter pelo menos 6 caracteres'
-          : 'Erro ao entrar. Tente novamente.';
-      toast({ title: 'Erro', description: msg, variant: 'destructive' });
+          : code === 'auth/too-many-requests'
+          ? 'Muitas tentativas. Aguarde alguns minutos.'
+          : code === 'auth/network-request-failed'
+          ? 'Erro de rede. Verifique sua conexão.'
+          : code
+          ? `Erro Firebase: ${code}`
+          : 'Erro desconhecido. Tente novamente.';
+      toast({ title: 'Erro de autenticação', description: msg, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
