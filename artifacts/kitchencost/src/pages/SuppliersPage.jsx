@@ -15,6 +15,7 @@ import {
   Plus, Loader2, Pencil, Trash2, Truck, Phone, Mail, MapPin,
   FileText, ArrowLeft, Search, ExternalLink, ReceiptText,
 } from 'lucide-react';
+import { formatCurrency as globalFormatCurrency } from '../lib/utils';
 
 const emptyForm = { name: '', contactName: '', phone: '', email: '', address: '', notes: '' };
 
@@ -36,10 +37,6 @@ const STATUS_COLORS = {
   cancelled: 'bg-red-100 text-red-600',
 };
 
-const formatCurrency = (val) => {
-  const n = parseFloat(val) || 0;
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-};
 
 const formatDate = (val) => {
   if (!val) return '—';
@@ -53,8 +50,10 @@ const formatDate = (val) => {
 };
 
 const SuppliersPage = () => {
-  const { restaurant } = useAuth();
+  const { restaurant, currency } = useAuth();
+  const formatCurrency = (val) => globalFormatCurrency(val, currency);
   const [suppliers, setSuppliers] = useState([]);
+  const [allInvoices, setAllInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -82,13 +81,16 @@ const SuppliersPage = () => {
         getInvoices(tenantId).catch(() => []),
       ]);
       setSuppliers(data);
+      setAllInvoices(allInvoices);
       const summary = {};
       for (const inv of allInvoices) {
         const sid = inv.supplierId;
         if (!sid) continue;
         if (!summary[sid]) summary[sid] = { totalSpent: 0, totalInvoices: 0, lastDate: null };
         summary[sid].totalInvoices += 1;
-        summary[sid].totalSpent += inv.totalAmount || 0;
+        if (inv.status === 'imported' || inv.status === 'with_divergence') {
+          summary[sid].totalSpent += inv.totalAmount || 0;
+        }
         const invDate = inv.invoiceDate || inv.createdAt;
         if (invDate && (!summary[sid].lastDate || invDate > summary[sid].lastDate)) {
           summary[sid].lastDate = invDate;
@@ -117,8 +119,7 @@ const SuppliersPage = () => {
     try {
       await deleteInvoiceWithStockReversal(tenantId, inv.id);
       toast({ title: 'Nota excluída e estoque revertido com sucesso.' });
-      await loadInvoicesForTab(selectedSupplier);
-      loadData();
+      await loadData();
     } catch (err) {
       toast({ title: 'Erro ao excluir nota', description: err.message, variant: 'destructive' });
     } finally {
@@ -126,11 +127,12 @@ const SuppliersPage = () => {
     }
   };
 
-  const loadInvoicesForTab = async (supplier) => {
-    setLoadingInvoices(true);
-    try {
-      const invoices = await getInvoicesBySupplier(tenantId, supplier.id);
-      const sorted = invoices.slice().sort((a, b) => {
+  const loadInvoicesForTab = (supplier, invoiceList) => {
+    const list = invoiceList || allInvoices;
+    const filtered = list
+      .filter(inv => inv.supplierId === supplier.id)
+      .slice()
+      .sort((a, b) => {
         const da = a.invoiceDate || '';
         const db2 = b.invoiceDate || '';
         if (da && db2 && da !== db2) return da < db2 ? 1 : -1;
@@ -138,13 +140,14 @@ const SuppliersPage = () => {
         const cb = b.createdAt?.seconds || 0;
         return cb - ca;
       });
-      setSupplierInvoices(sorted);
-    } catch {
-      toast({ title: 'Erro ao carregar notas', variant: 'destructive' });
-    } finally {
-      setLoadingInvoices(false);
-    }
+    setSupplierInvoices(filtered);
   };
+
+  useEffect(() => {
+    if (selectedSupplier && activeTab === 'notas') {
+      loadInvoicesForTab(selectedSupplier);
+    }
+  }, [allInvoices, selectedSupplier, activeTab]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
