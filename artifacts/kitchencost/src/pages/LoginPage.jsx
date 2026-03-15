@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import ReCAPTCHA from 'react-google-recaptcha';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ChefHat, Loader2, Mail } from 'lucide-react';
+
+const RECAPTCHA_SITE_KEY = '6Lcgb4ssAAAAAC4lOhF3eTlXFC5zrjuuIIXmhK3v';
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -18,13 +21,19 @@ const GoogleIcon = () => (
 const LoginPage = () => {
   const { loginWithEmail, loginWithGoogle, registerWithEmail } = useAuth();
   const { toast } = useToast();
-  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [recaptchaToken, setRecaptchaToken] = useState(null);
+  const recaptchaRef = useRef(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!recaptchaToken) {
+      toast({ title: 'Verificação necessária', description: 'Por favor, confirme que você não é um robô.', variant: 'destructive' });
+      return;
+    }
     setLoading(true);
     try {
       if (mode === 'login') {
@@ -41,6 +50,8 @@ const LoginPage = () => {
         ? 'A senha deve ter pelo menos 6 caracteres'
         : 'Erro ao entrar. Tente novamente.';
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
+      recaptchaRef.current?.reset();
+      setRecaptchaToken(null);
     } finally {
       setLoading(false);
     }
@@ -55,6 +66,12 @@ const LoginPage = () => {
     } finally {
       setGoogleLoading(false);
     }
+  };
+
+  const handleModeSwitch = () => {
+    setMode(mode === 'login' ? 'register' : 'login');
+    recaptchaRef.current?.reset();
+    setRecaptchaToken(null);
   };
 
   return (
@@ -122,7 +139,22 @@ const LoginPage = () => {
               required
             />
           </div>
-          <Button type="submit" className="w-full h-11" disabled={loading || googleLoading}>
+
+          <div className="flex justify-center">
+            <ReCAPTCHA
+              ref={recaptchaRef}
+              sitekey={RECAPTCHA_SITE_KEY}
+              onChange={(token) => setRecaptchaToken(token)}
+              onExpired={() => setRecaptchaToken(null)}
+              hl="pt-BR"
+            />
+          </div>
+
+          <Button
+            type="submit"
+            className="w-full h-11"
+            disabled={loading || googleLoading || !recaptchaToken}
+          >
             {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
             {mode === 'login' ? 'Entrar' : 'Criar conta'}
           </Button>
@@ -131,7 +163,7 @@ const LoginPage = () => {
         <p className="text-center text-sm text-muted-foreground mt-4">
           {mode === 'login' ? 'Não tem conta?' : 'Já tem conta?'}{' '}
           <button
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+            onClick={handleModeSwitch}
             className="text-primary font-medium hover:underline"
           >
             {mode === 'login' ? 'Criar conta grátis' : 'Entrar'}
