@@ -1,0 +1,26 @@
+~/workspace$ cd /home/runner/workspace/artifacts/kitchencost && pnpm run build
+
+> @workspace/kitchencost@0.0.0 build /home/runner/workspace/artifacts/kitchencost
+> vite build --config vite.config.ts
+
+failed to load config from /home/runner/workspace/artifacts/kitchencost/vite.config.ts
+error during build:
+Error: PORT environment variable is required but was not provided.
+    at file:///home/runner/workspace/artifacts/kitchencost/node_modules/.vite-temp/vite.config.ts.timestamp-1773534025063-8de8211707f0f8.mjs:10:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async loadConfigFromBundledFile (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:35909:12)
+    at async bundleAndLoadConfigFile (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:35797:17)
+    at async loadConfigFromFile (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:35764:42)
+    at async resolveConfig (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:35413:22)
+    at async createBuilder (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/chunks/config.js:33875:19)
+    at async CAC.<anonymous> (file:///home/runner/workspace/node_modules/.pnpm/vite@7.3.1_@types+node@25.3.5_jiti@2.6.1_lightningcss@1.31.1_tsx@4.21.0_yaml@2.8.2/node_modules/vite/dist/node/cli.js:629:10)
+ ELIFECYCLE  Command failed with exit code 1.
+~/.../artifacts/kitchencost$ firebase deploy --only hosting --project kitchencost-e1a2e
+
+=== Deploying to 'kitchencost-e1a2e'...
+
+i  deploying hosting
+i  hosting[kitchencost-e1a2e]: beginning deploy...
+
+Error: Directory 'dist/public' for Hosting does not exist.
