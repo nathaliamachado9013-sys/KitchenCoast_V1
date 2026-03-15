@@ -1,0 +1,67 @@
+Atue como engenheiro senior full-stack no projeto KitchenCost.
+
+Objetivo desta etapa:
+implementar upload e consulta de arquivos de notas fiscais usando Cloudinary no lugar do Firebase Storage.
+
+Contexto:
+- o Firebase Storage não pôde ser usado no projeto atual por limitação da região/configuração do projeto
+- por isso, a alternativa adotada será Cloudinary
+- o app já usa Firestore e Authentication
+- a arquitetura de acesso por restaurante/members deve ser respeitada
+- a funcionalidade de o usuário consultar as fotos/anexos das notas fiscais deve continuar existindo normalmente
+
+O que implementar:
+1. integrar o front-end do KitchenCost com Cloudinary para upload de arquivos
+2. usar uma abordagem segura e prática para esta fase inicial, preferencialmente com upload preset configurável
+3. salvar no Firestore apenas os metadados e links do arquivo, nunca o binário
+4. garantir que os anexos fiquem vinculados ao restaurante correto
+5. preparar a estrutura para anexos de notas fiscais e leitura posterior no sistema
+6. permitir exibição/consulta desses anexos na interface
+
+Estrutura esperada:
+- os arquivos devem ser organizados logicamente por restaurante
+- preferir uma estrutura como:
+  /restaurants/{restaurantId}/purchase_invoices/{invoiceId}
+  /restaurants/{restaurantId}/purchase_invoices/{invoiceId}/attachments/{attachmentId}
+ou equivalente compatível com a arquitetura atual do projeto
+
+Cada anexo salvo no Firestore deve conter pelo menos:
+- url
+- publicId
+- originalName
+- mimeType
+- size
+- uploadedAt
+- uploadedBy
+
+Requisitos obrigatórios:
+- respeitar a arquitetura multi-tenant por restaurante
+- não permitir mistura de anexos entre restaurantes
+- adaptar a UI para upload, listagem e visualização dos anexos
+- manter compatibilidade com o restante do app
+- não usar Firebase Storage
+- não quebrar funcionalidades existentes
+- usar Firestore para controle de acesso e metadados
+- usar Cloudinary apenas para armazenar o arquivo
+
+Melhorias desejadas:
+- preview de imagem quando o arquivo for imagem
+- tratamento de PDF com link ou visualização adequada
+- validação de tipo de arquivo
+- validação de tamanho
+- organização dos uploads em pasta por restaurante
+- tratamento de erros de upload
+- estado de loading e feedback visual para o usuário
+
+Importante:
+- identificar onde a funcionalidade de notas fiscais/anexos/notas já existe no código
+- conectar essa funcionalidade ao novo fluxo com Cloudinary
+- preservar a possibilidade de o usuário consultar as fotos das notas fiscais depois
+- se houver inconsistência de nomenclatura entre invoice, nota fiscal, attachment, anexo, receipt, corrigir e padronizar no código sem quebrar o app
+
+Entrega esperada:
+- resumo do que foi implementado
+- lista de arquivos alterados
+- instruções de configuração necessárias do Cloudinary no projeto
+- variáveis de ambiente necessárias
+- pontos futuros de endurecimento de segurança, se houver

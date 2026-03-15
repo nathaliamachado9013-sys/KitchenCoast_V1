@@ -15,7 +15,7 @@ import {
   checkDuplicateInvoice, importInvoiceLineToStock,
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';
-import { uploadInvoiceFile } from '../lib/invoiceStorage';
+import { uploadInvoiceFile, validateInvoiceFile, getCloudinaryThumbnailUrl } from '../lib/invoiceStorage';
 
 const ACCEPTED_TYPES = 'image/*,application/pdf';
 
@@ -108,14 +108,13 @@ const PurchasesPage = () => {
 
   const handleFileSelect = useCallback((file) => {
     if (!file) return;
-    const isImage = file.type.startsWith('image/');
-    const isPdf = file.type === 'application/pdf';
-    if (!isImage && !isPdf) {
-      toast({ title: 'Formato inválido', description: 'Use imagem ou PDF.', variant: 'destructive' });
+    const error = validateInvoiceFile(file);
+    if (error) {
+      toast({ title: 'Arquivo inválido', description: error, variant: 'destructive' });
       return;
     }
     setSelectedFile(file);
-    setFilePreviewUrl(isImage ? URL.createObjectURL(file) : null);
+    setFilePreviewUrl(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
     setExtractionError(null);
   }, [toast]);
 
@@ -235,11 +234,13 @@ const PurchasesPage = () => {
       });
 
       let fileUrl = '';
+      let attachmentMeta = null;
       try {
-        const uploaded = await uploadInvoiceFile(restaurant.id, invoiceId, selectedFile);
-        fileUrl = uploaded.url;
-      } catch {
-        // Upload failed — continue without file URL
+        attachmentMeta = await uploadInvoiceFile(restaurant.id, invoiceId, selectedFile, user?.uid || '');
+        fileUrl = attachmentMeta.url;
+      } catch (uploadErr) {
+        // Upload failed — continue without file URL, will be saved as empty
+        console.warn('Cloudinary upload failed:', uploadErr.message);
       }
 
       const confirmedLines = [];
@@ -273,6 +274,7 @@ const PurchasesPage = () => {
 
       await updateInvoice(restaurant.id, invoiceId, {
         fileUrl,
+        attachment: attachmentMeta || null,
         confirmedJson: { items: confirmedLines },
         status: stockUpdateErrors > 0 ? 'with_divergence' : 'imported',
       });
@@ -282,6 +284,8 @@ const PurchasesPage = () => {
         stockLinesImported: stockLines.filter(l => l.linkedItemId).length,
         totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
         stockUpdateErrors,
+        fileUrl,
+        fileMimeType: selectedFile?.type,
       });
       setStep('done');
       toast({ title: 'Nota importada com sucesso!' });
@@ -326,6 +330,8 @@ const PurchasesPage = () => {
 
   // ── STEP: DONE ────────────────────────────────────────────────────────────
   if (step === 'done' && savedResult) {
+    const thumbUrl = getCloudinaryThumbnailUrl(savedResult.fileUrl, savedResult.fileMimeType);
+    const isPdf = savedResult.fileMimeType === 'application/pdf';
     return (
       <div className="page-container max-w-xl mx-auto">
         <div className="flex flex-col items-center text-center py-12">
@@ -344,6 +350,32 @@ const PurchasesPage = () => {
           <p className="text-muted-foreground text-sm mt-1">
             Total da nota: {formatCurrency(savedResult.totalAmount)}
           </p>
+
+          {savedResult.fileUrl && (
+            <div className="mt-6 flex flex-col items-center gap-2">
+              {thumbUrl && !isPdf ? (
+                <a href={savedResult.fileUrl} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={thumbUrl}
+                    alt="Nota fiscal"
+                    className="w-24 h-24 object-cover rounded-xl border border-border shadow-sm hover:shadow-md transition-shadow"
+                  />
+                </a>
+              ) : (
+                <a
+                  href={savedResult.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-emerald-600 font-medium hover:underline"
+                >
+                  <FileText className="w-4 h-4" />
+                  Ver PDF da nota fiscal
+                </a>
+              )}
+              <p className="text-xs text-muted-foreground">Arquivo salvo — clique para visualizar</p>
+            </div>
+          )}
+
           <div className="flex gap-3 mt-8">
             <Button onClick={resetAll} className="bg-emerald-600 hover:bg-emerald-700">
               <Plus className="w-4 h-4 mr-2" />
