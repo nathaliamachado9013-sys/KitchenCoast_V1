@@ -1,0 +1,60 @@
+Atue como engenheiro senior Firebase/Auth no projeto KitchenCost.
+
+Situação atual confirmada:
+
+- login com email e senha funciona
+- login com Google funciona em alguns dispositivos
+- em outros dispositivos aparece erro do Firebase:
+
+"Não foi possível processar a solicitação devido à falta do estado inicial"
+
+Essa mensagem normalmente ocorre quando:
+- signInWithRedirect ainda está sendo usado
+- o navegador não consegue restaurar o estado OAuth
+- o build publicado ainda contém código antigo
+
+IMPORTANTE:
+já foi feita uma correção para substituir signInWithRedirect por signInWithPopup.
+
+Sua tarefa agora NÃO é tentar outra correção.
+Sua tarefa é AUDITAR exatamente o que está rodando no build publicado.
+
+Execute estas verificações em ordem:
+
+1. verificar o código fonte atual e confirmar se ainda existe:
+   - signInWithRedirect
+   - getRedirectResult
+   - qualquer fallback que use redirect
+
+2. verificar se existe código condicional que use redirect em mobile ou iframe
+
+3. verificar o arquivo AuthContext.jsx e qualquer helper de autenticação
+
+4. confirmar que loginWithGoogle usa apenas:
+
+   signInWithPopup(auth, new GoogleAuthProvider())
+
+5. verificar se o deploy publicado no Firebase Hosting contém esse código atualizado
+
+6. confirmar que o último deploy foi realizado após a alteração do login Google
+
+7. verificar se existe cache de service worker que pode estar servindo build antigo
+
+8. verificar se algum bundle antigo ainda está sendo carregado no navegador
+
+9. revisar a configuração do authDomain e garantir que corresponde ao domínio publicado
+
+10. verificar se existe qualquer redirecionamento OAuth sendo feito fora do código principal
+
+Depois disso entregue:
+
+- confirmação de que redirect foi totalmente removido do projeto
+- confirmação de que o build publicado contém apenas signInWithPopup
+- lista de arquivos onde login Google é chamado
+- resultado do teste em:
+   desktop
+   mobile
+
+Se ainda existir redirect em qualquer ponto do projeto, identifique exatamente onde e remova.
+
+Não implemente novas soluções antes de confirmar o estado real do build publicado.

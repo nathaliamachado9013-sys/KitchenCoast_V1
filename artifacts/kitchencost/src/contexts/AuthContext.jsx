@@ -3,6 +3,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   updateProfile,
@@ -41,6 +42,19 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  // Safety net for mobile browsers:
+  // When signInWithPopup is called on iOS/Android, the Firebase SDK automatically
+  // falls back to a redirect flow because mobile browsers block popups.
+  // getRedirectResult() recovers the user session when the browser returns to the app.
+  // On desktop this resolves immediately with null — no side effects.
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      // Ignore — errors here are non-actionable (e.g. no pending redirect).
+      // onAuthStateChanged handles the authenticated state regardless.
+      console.warn('[Auth] getRedirectResult:', error?.code);
+    });
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -66,8 +80,9 @@ export const AuthProvider = ({ children }) => {
     return cred.user;
   };
 
-  // signInWithPopup works in iframes, mobile browsers, and environments
-  // where third-party cookies are restricted (unlike signInWithRedirect).
+  // Primary: signInWithPopup (desktop and iframe environments).
+  // On mobile browsers that block popups, Firebase SDK automatically falls back
+  // to signInWithRedirect internally — getRedirectResult() above handles the return.
   const loginWithGoogle = async () => {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
