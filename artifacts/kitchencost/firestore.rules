@@ -10,13 +10,21 @@ service cloud.firestore {
 
     // Restaurant access: only the owner can access their restaurant
     match /restaurants/{restaurantId} {
-      // Helper function to check if the authenticated user owns this restaurant
+
+      // Check if the authenticated user is the owner (after onboarding)
       function isOwner() {
         return request.auth != null &&
                get(/databases/$(database)/documents/users/$(request.auth.uid)).data.restaurantId == restaurantId;
       }
 
-      allow read, write: if isOwner();
+      // Allow creation if the userId field in the new document matches the authenticated user
+      function isCreatingOwnRestaurant() {
+        return request.auth != null &&
+               request.resource.data.userId == request.auth.uid;
+      }
+
+      allow create: if isCreatingOwnRestaurant();
+      allow read, update, delete: if isOwner();
 
       // All subcollections follow the same owner rule
       match /ingredients/{docId} {
