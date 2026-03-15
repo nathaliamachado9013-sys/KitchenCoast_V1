@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,6 +14,19 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+// In development (Replit preview), use debug token so App Check doesn't block auth.
+// Firebase will print the debug token to the console — register it in:
+// Firebase Console → App Check → Apps → Add debug token
+if (import.meta.env.DEV) {
+  // @ts-ignore
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6Lcgb4ssAAAAAC4lOhF3eTlXFC5zrjuuIIXmhK3v'),
+  isTokenAutoRefreshEnabled: true,
+});
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
