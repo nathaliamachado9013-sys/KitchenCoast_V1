@@ -954,23 +954,88 @@ export const getInvoicesBySupplier = async (restaurantId, supplierId) => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 
-export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNumber, totalAmount) => {
-  if (!invoiceNumber) return null;
-  const q = query(
-    collection(db, 'restaurants', restaurantId, 'invoices'),
-    where('supplierId', '==', supplierId),
-    where('invoiceNumber', '==', invoiceNumber),
-    where('status', '!=', 'cancelled')
+export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNumber, invoiceDate, totalAmount) => {
+  if (!supplierId) return null;
+
+  if (invoiceNumber) {
+    const q = query(
+      collection(db, 'restaurants', restaurantId, 'invoices'),
+      where('supplierId', '==', supplierId),
+      where('invoiceNumber', '==', invoiceNumber),
+      where('status', '!=', 'cancelled')
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const existing = snap.docs[0].data();
+      return { id: snap.docs[0].id, invoiceNumber: existing.invoiceNumber, invoiceDate: existing.invoiceDate, totalAmount: existing.totalAmount, matchType: 'number' };
+    }
+  }
+
+  if (invoiceDate && totalAmount > 0) {
+    const q = query(
+      collection(db, 'restaurants', restaurantId, 'invoices'),
+      where('supplierId', '==', supplierId),
+      where('invoiceDate', '==', invoiceDate),
+      where('status', '!=', 'cancelled')
+    );
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (Math.abs((data.totalAmount || 0) - totalAmount) < 0.02) {
+        return { id: d.id, invoiceNumber: data.invoiceNumber, invoiceDate: data.invoiceDate, totalAmount: data.totalAmount, matchType: 'date_amount' };
+      }
+    }
+  }
+
+  return null;
+};
+
+export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) => {
+  const movQ = query(
+    collection(db, 'restaurants', restaurantId, 'stock_movements'),
+    where('invoiceId', '==', invoiceId)
   );
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const existing = snap.docs[0].data();
-  return {
-    id: snap.docs[0].id,
-    invoiceNumber: existing.invoiceNumber,
-    invoiceDate: existing.invoiceDate,
-    totalAmount: existing.totalAmount,
-  };
+  const movSnap = await getDocs(movQ);
+  const movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  for (const mov of movements) {
+    const qty = mov.quantity || 0;
+    const unitCost = mov.unitCost || 0;
+
+    if (mov.ingredientId) {
+      const ref = doc(db, 'restaurants', restaurantId, 'ingredients', mov.ingredientId);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data();
+        const currentQty = data.currentStock || 0;
+        const currentAvg = data.averageCost || data.costPerUnit || 0;
+        const newQty = Math.max(0, currentQty - qty);
+        const removedValue = qty * unitCost;
+        const currentTotalValue = currentQty * currentAvg;
+        const newTotalValue = Math.max(0, currentTotalValue - removedValue);
+        const newAvg = newQty > 0 ? newTotalValue / newQty : currentAvg;
+        await updateDoc(ref, { currentStock: newQty, costPerUnit: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
+      }
+    } else if (mov.resaleProductId) {
+      const ref = doc(db, 'restaurants', restaurantId, 'resale_products', mov.resaleProductId);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data();
+        const currentQty = data.stockQuantity || 0;
+        const currentAvg = data.averageCost || data.cost || 0;
+        const newQty = Math.max(0, currentQty - qty);
+        const removedValue = qty * unitCost;
+        const currentTotalValue = currentQty * currentAvg;
+        const newTotalValue = Math.max(0, currentTotalValue - removedValue);
+        const newAvg = newQty > 0 ? newTotalValue / newQty : currentAvg;
+        await updateDoc(ref, { stockQuantity: newQty, cost: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
+      }
+    }
+
+    await deleteDoc(doc(db, 'restaurants', restaurantId, 'stock_movements', mov.id));
+  }
+
+  await deleteDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId));
 };
 
 // Weighted average cost update when importing an invoice line to stock

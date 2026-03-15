@@ -180,9 +180,9 @@ const StockPage = () => {
                   <tr key={m.id} className="border-t border-border/50">
                     <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(m.createdAt)}</td>
                     <td className="px-4 py-3">
-                      <span className={`flex items-center gap-1 text-xs font-medium ${m.type === 'entry' ? 'text-green-600' : 'text-red-600'}`}>
-                        {m.type === 'entry' ? <ArrowUpCircle className="w-3.5 h-3.5" /> : <ArrowDownCircle className="w-3.5 h-3.5" />}
-                        {m.type === 'entry' ? 'Entrada' : 'Saída'}
+                      <span className={`flex items-center gap-1 text-xs font-medium ${m.type === 'in' || m.type === 'entry' ? 'text-green-600' : 'text-red-600'}`}>
+                        {m.type === 'in' || m.type === 'entry' ? <ArrowUpCircle className="w-3.5 h-3.5" /> : <ArrowDownCircle className="w-3.5 h-3.5" />}
+                        {m.type === 'in' || m.type === 'entry' ? 'Entrada' : 'Saída'}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium">{m.ingredientName}</td>

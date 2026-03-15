@@ -316,20 +316,30 @@ const PurchasesPage = () => {
         }
       }
 
+      const stockImportedValue = confirmedLines
+        .filter(l => l.status === 'imported')
+        .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
+
+      const ignoredValue = confirmedLines
+        .filter(l => l.status === 'ignored' || l.status === 'skipped')
+        .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
+
       await updateInvoice(restaurant.id, invoiceId, {
         fileUrl,
         attachment: attachmentMeta || null,
         confirmedJson: { items: confirmedLines },
+        stockImportedValue,
+        ignoredValue,
         status: stockUpdateErrors > 0 ? 'with_divergence' : 'imported',
       });
 
-      const importedCount = workingLines.filter(
-        l => (l.itemType === 'ingredient' || l.itemType === 'resale_product') && l.linkedItemId
-      ).length;
+      const importedCount = confirmedLines.filter(l => l.status === 'imported').length;
 
       setSavedResult({
         invoiceId,
         stockLinesImported: importedCount,
+        stockImportedValue,
+        ignoredValue,
         totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
         stockUpdateErrors,
         fileUrl,
@@ -346,12 +356,13 @@ const PurchasesPage = () => {
   };
 
   const handleCheckDuplicate = async () => {
-    if (!selectedSupplier || !invoiceHeader.invoiceNumber) return;
+    if (!selectedSupplier) return;
     const dup = await checkDuplicateInvoice(
       restaurant.id,
       selectedSupplier.id,
       invoiceHeader.invoiceNumber,
-      parseFloat(invoiceHeader.totalAmount)
+      invoiceHeader.invoiceDate,
+      parseFloat(invoiceHeader.totalAmount) || 0
     );
     setDuplicateWarning(dup);
   };
@@ -398,9 +409,11 @@ const PurchasesPage = () => {
               {savedResult.stockUpdateErrors} item(ns) não puderam ser atualizados.
             </p>
           )}
-          <p className="text-muted-foreground text-sm mt-1">
-            Total da nota: {formatCurrency(savedResult.totalAmount)}
-          </p>
+          <div className="mt-3 text-sm space-y-1 bg-muted/40 rounded-xl p-4 text-left w-full">
+            <div className="flex justify-between"><span className="text-muted-foreground">Total da nota:</span><span className="font-medium">{formatCurrency(savedResult.totalAmount)}</span></div>
+            {savedResult.stockImportedValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor importado p/ estoque:</span><span className="font-medium text-emerald-700">{formatCurrency(savedResult.stockImportedValue)}</span></div>}
+            {savedResult.ignoredValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor ignorado / taxas:</span><span className="text-muted-foreground">{formatCurrency(savedResult.ignoredValue)}</span></div>}
+          </div>
 
           {savedResult.fileUrl && (
             <div className="mt-6 flex flex-col items-center gap-2">
@@ -493,8 +506,11 @@ const PurchasesPage = () => {
               <div className="flex-1">
                 <p className="font-medium text-sm">Possível nota duplicada detectada</p>
                 <p className="text-sm mt-0.5">
-                  Já existe a Nota Nº <strong>{duplicateWarning.invoiceNumber}</strong> — {formatCurrency(duplicateWarning.totalAmount)} para este fornecedor.
-                  Confirme se é uma nota diferente antes de importar.
+                  {duplicateWarning.matchType === 'number'
+                    ? <>Já existe a Nota Nº <strong>{duplicateWarning.invoiceNumber}</strong> — {formatCurrency(duplicateWarning.totalAmount)} para este fornecedor (mesmo número de nota).</>
+                    : <>Já existe uma nota com a mesma data e valor total ({formatCurrency(duplicateWarning.totalAmount)}) para este fornecedor.</>
+                  }
+                  {' '}Verifique se é uma nota diferente antes de continuar.
                 </p>
               </div>
               <button onClick={() => setDuplicateWarning(null)} className="text-amber-400 hover:text-amber-700 shrink-0">
@@ -605,6 +621,7 @@ const PurchasesPage = () => {
                   type="date"
                   value={invoiceHeader.invoiceDate}
                   onChange={e => setInvoiceHeader(h => ({ ...h, invoiceDate: e.target.value }))}
+                  onBlur={handleCheckDuplicate}
                 />
               </div>
 
@@ -616,6 +633,7 @@ const PurchasesPage = () => {
                   step="0.01"
                   value={invoiceHeader.totalAmount}
                   onChange={e => setInvoiceHeader(h => ({ ...h, totalAmount: e.target.value }))}
+                  onBlur={handleCheckDuplicate}
                   placeholder="0,00"
                 />
               </div>

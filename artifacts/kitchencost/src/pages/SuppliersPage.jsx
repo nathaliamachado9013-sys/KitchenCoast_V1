@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
 import {
   getSuppliers, createSupplier, updateSupplier, deleteSupplier,
-  getInvoicesBySupplier, getInvoices,
+  getInvoicesBySupplier, getInvoices, deleteInvoiceWithStockReversal,
 } from '../lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -88,8 +88,8 @@ const SuppliersPage = () => {
         if (!sid) continue;
         if (!summary[sid]) summary[sid] = { totalSpent: 0, totalInvoices: 0, lastDate: null };
         summary[sid].totalInvoices += 1;
-        summary[sid].totalSpent += inv.total || inv.totalValue || 0;
-        const invDate = inv.issueDate || inv.createdAt;
+        summary[sid].totalSpent += inv.totalAmount || 0;
+        const invDate = inv.invoiceDate || inv.createdAt;
         if (invDate && (!summary[sid].lastDate || invDate > summary[sid].lastDate)) {
           summary[sid].lastDate = invDate;
         }
@@ -109,11 +109,36 @@ const SuppliersPage = () => {
     setSupplierInvoices([]);
   };
 
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
+
+  const handleDeleteInvoice = async (inv) => {
+    if (!window.confirm(`Excluir a nota Nº ${inv.invoiceNumber || 'sem número'}?\n\nEsta ação irá reverter todos os movimentos de estoque associados.`)) return;
+    setDeletingInvoiceId(inv.id);
+    try {
+      await deleteInvoiceWithStockReversal(tenantId, inv.id);
+      toast({ title: 'Nota excluída e estoque revertido com sucesso.' });
+      await loadInvoicesForTab(selectedSupplier);
+      loadData();
+    } catch (err) {
+      toast({ title: 'Erro ao excluir nota', description: err.message, variant: 'destructive' });
+    } finally {
+      setDeletingInvoiceId(null);
+    }
+  };
+
   const loadInvoicesForTab = async (supplier) => {
     setLoadingInvoices(true);
     try {
       const invoices = await getInvoicesBySupplier(tenantId, supplier.id);
-      setSupplierInvoices(invoices);
+      const sorted = invoices.slice().sort((a, b) => {
+        const da = a.invoiceDate || '';
+        const db2 = b.invoiceDate || '';
+        if (da && db2 && da !== db2) return da < db2 ? 1 : -1;
+        const ca = a.createdAt?.seconds || 0;
+        const cb = b.createdAt?.seconds || 0;
+        return cb - ca;
+      });
+      setSupplierInvoices(sorted);
     } catch {
       toast({ title: 'Erro ao carregar notas', variant: 'destructive' });
     } finally {
@@ -409,6 +434,15 @@ const SuppliersPage = () => {
                             Ver arquivo
                           </a>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-7 h-7 text-destructive shrink-0"
+                          disabled={deletingInvoiceId === inv.id}
+                          onClick={e => { e.stopPropagation(); handleDeleteInvoice(inv); }}
+                        >
+                          {deletingInvoiceId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </Button>
                       </div>
                     );
                   })}
