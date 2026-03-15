@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { getRecipes, createRecipe, updateRecipe, deleteRecipe, getIngredients, getOperationalCosts } from '../lib/firestore';
 import { formatCurrency, formatNumber, RECIPE_CATEGORIES, MARGIN_RECOMMENDATIONS, UNITS } from '../lib/utils';
 import { Button } from '@/components/ui/button';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { updateRestaurant, getMenuCategories, createMenuCategory, updateMenuCategory, deleteMenuCategory } from '../lib/firestore';
 import { SUPPORTED_CURRENCIES } from '../lib/utils';
 import { Button } from '@/components/ui/button';

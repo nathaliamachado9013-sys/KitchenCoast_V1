@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { getSales, createSale, deleteSale, getMenuItems, getSalesSummary } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime, SALES_CHANNELS } from '../lib/utils';
 import { Button } from '@/components/ui/button';

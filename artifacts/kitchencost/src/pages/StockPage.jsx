@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { getIngredients, getStockMovements, createStockEntry, createStockExit, getInventoryValue } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';

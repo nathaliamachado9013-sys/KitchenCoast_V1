@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { createRestaurant } from '../lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

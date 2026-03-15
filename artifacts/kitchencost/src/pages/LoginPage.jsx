@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,13 +27,12 @@ const LoginPage = () => {
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    if (!executeRecaptcha) {
-      toast({ title: 'reCAPTCHA não carregado. Aguarde e tente novamente.', variant: 'destructive' });
-      return;
-    }
     setLoading(true);
     try {
-      await executeRecaptcha(mode === 'login' ? 'login' : 'register');
+      // reCAPTCHA v3 é opcional — não bloqueia o login se não carregar
+      if (executeRecaptcha) {
+        await executeRecaptcha(mode === 'login' ? 'login' : 'register').catch(() => {});
+      }
       if (mode === 'login') {
         await loginWithEmail(formData.email, formData.password);
       } else {

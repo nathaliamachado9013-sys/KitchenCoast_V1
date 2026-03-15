@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -10,14 +10,7 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { getRestaurantByUserId, getMember } from '../lib/firestore';
-
-const AuthContext = createContext(null);
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-};
+import { AuthContext } from './authContext';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -53,7 +46,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    // Handle redirect result on page load (after Google redirect)
+    const wasRedirectPending = sessionStorage.getItem('google_redirect_pending') === '1';
+    if (wasRedirectPending) {
+      sessionStorage.removeItem('google_redirect_pending');
+    }
+
     setRedirectLoading(true);
     getRedirectResult(auth)
       .then((result) => {
@@ -63,13 +60,17 @@ export const AuthProvider = ({ children }) => {
         setRedirectError(null);
       })
       .catch((error) => {
+        const code = error?.code || '';
         console.error('Google redirect error:', {
-          code: error?.code,
+          code,
           message: error?.message,
           customData: error?.customData,
           serverResponse: error?.customData?.serverResponse,
         });
-        setRedirectError(error?.code || error?.message || 'Erro ao entrar com Google.');
+        // Only show error to user if they actually triggered a Google redirect
+        if (wasRedirectPending) {
+          setRedirectError(`${code || 'erro desconhecido'} — ${error?.message || ''}`);
+        }
       })
       .finally(() => {
         setRedirectLoading(false);
@@ -103,6 +104,7 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     setRedirectError(null);
+    sessionStorage.setItem('google_redirect_pending', '1');
     await signInWithRedirect(auth, googleProvider);
     // Page will redirect — no return value
   };

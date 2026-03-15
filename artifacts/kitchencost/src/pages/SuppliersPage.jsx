@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { getSuppliers, createSupplier, updateSupplier, deleteSupplier } from '../lib/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
