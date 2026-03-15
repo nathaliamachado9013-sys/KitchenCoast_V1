@@ -1,0 +1,198 @@
+IMPORTANT:
+IMPROVE UX AND CLARITY OF THE EXISTING INVOICE REVIEW FLOW.
+DO NOT REBUILD THE WHOLE SYSTEM.
+DO NOT CHANGE CORE BUSINESS RULES.
+DO NOT REMOVE EXISTING EXTRACTION OR VALIDATION FEATURES.
+ONLY IMPROVE THE REVIEW EXPERIENCE SO USERS CAN UNDERSTAND AND CONFIRM INVOICE DATA EASILY.
+
+GOAL:
+The current invoice review page is too small, crowded, and confusing.
+We need a clearer, more professional review experience before import.
+
+==================================================
+MAIN UX GOAL
+==================================================
+
+The invoice review page must feel like a proper verification step, not a cramped form.
+
+The user should understand in a few seconds:
+1. which supplier this invoice belongs to
+2. what invoice metadata was extracted
+3. which items were found
+4. which items will affect stock
+5. which items are linked to existing products/ingredients
+6. which items still need user action
+7. when the invoice is safe to import
+
+==================================================
+REQUIRED UX STRUCTURE
+==================================================
+
+Redesign the invoice review page layout into 3 clear sections:
+
+--------------------------------------------------
+SECTION 1 — HEADER / PAGE ACTIONS
+--------------------------------------------------
+
+At the top show:
+- title: Revisão da Nota Fiscal
+- short helper text: "Verifique e ajuste os dados antes de importar"
+- primary action button: Importar
+- secondary action button: Cancelar
+
+If there are unresolved lines, disable Importar and show a clear warning.
+
+--------------------------------------------------
+SECTION 2 — INVOICE SUMMARY BLOCK
+--------------------------------------------------
+
+Create a clean summary card/section with the main invoice fields:
+
+- Fornecedor
+- Nº da Nota
+- Data da Nota
+- Valor Total
+- Moeda
+- Nome detectado pela IA (if different from selected supplier)
+
+This section should be compact and visually clean.
+
+Supplier selection must be easy to understand:
+- selected supplier
+- detected supplier by AI
+- if no supplier is selected, show a clear warning before import
+
+--------------------------------------------------
+SECTION 3 — EXTRACTED ITEMS REVIEW
+--------------------------------------------------
+
+This is the main area and must be much easier to scan.
+
+Each extracted item must be displayed as its own clear review block/card/row with enough spacing.
+
+For each item show:
+
+A. original detected text from invoice
+B. editable final item name
+C. item type selector:
+   - Ingrediente
+   - Produto de Revenda
+   - Ignorar
+   - Desconhecido
+
+D. quantity
+E. unit
+F. unit price
+G. line total
+
+H. linking area:
+   - Vincular a item existente
+   - or Criar novo
+
+I. status feedback:
+   - Vinculado
+   - Será criado
+   - Ignorado
+   - Precisa de ação
+
+==================================================
+USER FLOW RULES
+==================================================
+
+The user must be able to understand the status of each line immediately.
+
+Each line should visually indicate one of these states:
+
+- linked to existing item
+- new item will be created
+- ignored
+- unresolved / blocked
+
+If a line is unresolved:
+- highlight it clearly
+- explain what is missing
+- prevent final import
+
+==================================================
+VISUAL CLARITY RULES
+==================================================
+
+Improve spacing, grouping, and readability.
+
+Do NOT keep everything compressed into one crowded block.
+
+Requirements:
+- more vertical spacing between items
+- clear grouping borders/cards/sections
+- readable labels
+- clear typography hierarchy
+- visible status badges or labels
+- enough width for item name and original invoice text
+- action buttons aligned clearly
+
+==================================================
+REQUIRED SUMMARY COUNTERS
+==================================================
+
+At the top of the items section, show quick counters such as:
+
+- total items extracted
+- items going to stock
+- ignored items
+- unresolved items
+
+This helps the user understand progress before importing.
+
+==================================================
+WARNINGS AND HELP TEXT
+==================================================
+
+Add clear helper text where useful.
+
+Examples:
+- "Linhas marcadas como Desconhecido precisam ser resolvidas antes da importação."
+- "Itens marcados como Ignorar serão salvos na nota, mas não entrarão no estoque."
+- "Se o item não existir, você pode criar um novo antes da importação."
+
+==================================================
+IMPORT BUTTON BEHAVIOR
+==================================================
+
+The Importar button must feel safe and explicit.
+
+If all lines are valid:
+- button enabled
+
+If there are unresolved lines:
+- button disabled
+- show explanation
+
+If duplicate invoice risk exists:
+- show clear duplicate warning before import
+
+==================================================
+WHAT NOT TO DO
+==================================================
+
+Do NOT:
+- redesign the whole SaaS
+- remove AI extraction
+- remove validation
+- simplify away the review step
+- auto-import unknown lines
+- hide critical item data
+
+==================================================
+EXPECTED RESULT
+==================================================
+
+The invoice review page should become a large, clear, professional verification screen.
+
+The user should quickly understand:
+- invoice metadata
+- extracted lines
+- stock impact
+- unresolved issues
+- what will happen on import
+
+This is a UX improvement task, not a business logic rewrite.

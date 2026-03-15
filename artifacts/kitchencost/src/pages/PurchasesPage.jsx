@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertTriangle,
   ChevronDown, Plus, X, ReceiptText, Sparkles, Link2, PlusCircle,
+  EyeOff, Package, ShieldAlert, Truck,
 } from 'lucide-react';
 import {
   getSuppliers, createSupplier,
@@ -440,285 +441,449 @@ const PurchasesPage = () => {
 
   // ── STEP: REVIEW ─────────────────────────────────────────────────────────
   if (step === 'review') {
+    const unknownLines = reviewLines.filter(l => l.itemType === 'unknown');
+    const unlinkedStockLines = stockLines.filter(l => !l.linkedItemId && !l.createNew);
+    const ignoredLines = reviewLines.filter(l => l.itemType === 'ignore');
+    const readyStockLines = stockLines.filter(l => l.linkedItemId || l.createNew);
+    const unresolvedCount = unknownLines.length + unlinkedStockLines.length + (!selectedSupplier ? 1 : 0);
+    const canImport = !isSaving && !!selectedSupplier && unknownLines.length === 0 && unlinkedStockLines.length === 0 && !duplicateWarning;
+
+    const getLineStatus = (line) => {
+      if (line.itemType === 'ignore') return { label: 'Ignorado', cls: 'bg-gray-100 text-gray-500', Icon: EyeOff };
+      if (line.itemType === 'unknown') return { label: 'Precisa de ação', cls: 'bg-amber-100 text-amber-700', Icon: AlertTriangle };
+      if (line.linkedItemId) return { label: 'Vinculado', cls: 'bg-green-100 text-green-700', Icon: CheckCircle2 };
+      if (line.createNew) return { label: 'Será criado', cls: 'bg-blue-100 text-blue-700', Icon: PlusCircle };
+      return { label: 'Precisa de ação', cls: 'bg-amber-100 text-amber-700', Icon: AlertTriangle };
+    };
+
+    const getBorderColor = (line) => {
+      if (line.itemType === 'ignore') return 'border-l-gray-200';
+      if (line.linkedItemId || line.createNew) return 'border-l-emerald-400';
+      return 'border-l-amber-400';
+    };
+
     return (
       <Layout>
         <div className="page-container">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">Revisão da Nota Fiscal</h1>
-            <p className="page-subtitle">Verifique e ajuste os dados antes de importar.</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={resetAll}>Cancelar</Button>
-            <Button
-              onClick={handleImport}
-              disabled={isSaving}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-              Importar
-            </Button>
-          </div>
-        </div>
 
-        {duplicateWarning && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2 text-sm text-amber-800">
-            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>
-              Possível nota duplicada: Nº {duplicateWarning.invoiceNumber} — {formatCurrency(duplicateWarning.totalAmount)}.
-              Confirme antes de importar.
-            </span>
-            <button onClick={() => setDuplicateWarning(null)} className="ml-auto text-amber-500 hover:text-amber-700">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Invoice header */}
-        <div className="card mb-6">
-          <h3 className="font-semibold text-foreground mb-4">Dados da Nota</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* ─── SECTION 1: Header ─────────────────────────────────────── */}
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div>
-              <Label>Fornecedor</Label>
-              <div className="relative mt-1">
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between px-3 py-2 border border-border rounded-md text-sm bg-background hover:bg-muted/50"
-                  onClick={() => setShowSupplierDropdown(v => !v)}
-                >
-                  <span>{selectedSupplier ? selectedSupplier.name : <span className="text-muted-foreground">Selecione um fornecedor</span>}</span>
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                </button>
-                {showSupplierDropdown && (
-                  <div className="absolute z-20 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {suppliers.map(s => (
+              <h1 className="page-title">Revisão da Nota Fiscal</h1>
+              <p className="page-subtitle">Verifique e ajuste os dados extraídos antes de importar para o estoque.</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" onClick={resetAll} disabled={isSaving}>Cancelar</Button>
+              <Button
+                onClick={handleImport}
+                disabled={!canImport}
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isSaving
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Importando...</>
+                  : <><CheckCircle2 className="w-4 h-4 mr-2" />Confirmar e Importar</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* Duplicate warning */}
+          {duplicateWarning && (
+            <div className="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-amber-800">
+              <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-amber-500" />
+              <div className="flex-1">
+                <p className="font-medium text-sm">Possível nota duplicada detectada</p>
+                <p className="text-sm mt-0.5">
+                  Já existe a Nota Nº <strong>{duplicateWarning.invoiceNumber}</strong> — {formatCurrency(duplicateWarning.totalAmount)} para este fornecedor.
+                  Confirme se é uma nota diferente antes de importar.
+                </p>
+              </div>
+              <button onClick={() => setDuplicateWarning(null)} className="text-amber-400 hover:text-amber-700 shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Blocking warnings */}
+          {unresolvedCount > 0 && (
+            <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+              <div className="text-sm text-red-800 space-y-1">
+                <p className="font-medium">Não é possível importar — resolva os itens pendentes:</p>
+                {!selectedSupplier && <p>• Nenhum fornecedor selecionado para esta nota.</p>}
+                {unknownLines.length > 0 && <p>• {unknownLines.length} item(ns) marcados como "Desconhecido" — classifique ou marque como Ignorar.</p>}
+                {unlinkedStockLines.length > 0 && <p>• {unlinkedStockLines.length} item(ns) de estoque sem vínculo — vincule a um item existente ou marque "Criar novo".</p>}
+              </div>
+            </div>
+          )}
+
+          {/* ─── SECTION 2: Invoice Summary ────────────────────────────── */}
+          <div className="card mb-6">
+            <h3 className="font-semibold text-foreground mb-5 flex items-center gap-2">
+              <ReceiptText className="w-4 h-4 text-muted-foreground" />
+              Dados da Nota
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+
+              {/* Supplier */}
+              <div className="sm:col-span-2 lg:col-span-1">
+                <Label className="mb-1.5 block">
+                  Fornecedor <span className="text-red-500">*</span>
+                </Label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-md text-sm bg-background hover:bg-muted/50 transition-colors ${
+                      !selectedSupplier ? 'border-red-300 bg-red-50' : 'border-border'
+                    }`}
+                    onClick={() => setShowSupplierDropdown(v => !v)}
+                  >
+                    <span className={`flex items-center gap-2 ${!selectedSupplier ? 'text-red-500' : 'text-foreground'}`}>
+                      <Truck className="w-3.5 h-3.5 shrink-0" />
+                      {selectedSupplier ? selectedSupplier.name : 'Selecione um fornecedor'}
+                    </span>
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                  {showSupplierDropdown && (
+                    <div className="absolute z-20 mt-1 w-full bg-white border border-border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      {suppliers.map(s => (
+                        <button
+                          key={s.id}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50"
+                          onClick={() => { setSelectedSupplier(s); setShowSupplierDropdown(false); }}
+                        >
+                          {s.name}
+                        </button>
+                      ))}
                       <button
-                        key={s.id}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50"
-                        onClick={() => { setSelectedSupplier(s); setShowSupplierDropdown(false); }}
+                        className="w-full text-left px-3 py-2 text-sm text-emerald-600 font-medium hover:bg-emerald-50 border-t border-border"
+                        onClick={() => { setShowNewSupplierForm(true); setShowSupplierDropdown(false); }}
                       >
-                        {s.name}
+                        <Plus className="w-3 h-3 inline mr-1" /> Novo fornecedor
                       </button>
-                    ))}
-                    <button
-                      className="w-full text-left px-3 py-2 text-sm text-emerald-600 font-medium hover:bg-emerald-50 border-t border-border"
-                      onClick={() => { setShowNewSupplierForm(true); setShowSupplierDropdown(false); }}
-                    >
-                      <Plus className="w-3 h-3 inline mr-1" /> Novo fornecedor
-                    </button>
+                    </div>
+                  )}
+                </div>
+                {showNewSupplierForm && (
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      placeholder="Nome do fornecedor"
+                      value={newSupplierName}
+                      onChange={e => setNewSupplierName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleCreateSupplier()}
+                      className="text-sm"
+                    />
+                    <Button size="sm" onClick={handleCreateSupplier} disabled={creatingSupplier} className="bg-emerald-600 hover:bg-emerald-700 shrink-0">
+                      {creatingSupplier ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Criar'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowNewSupplierForm(false)}>
+                      <X className="w-3 h-3" />
+                    </Button>
                   </div>
                 )}
+                {invoiceHeader.supplierNameDetected && (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    IA detectou: <em className="font-medium">{invoiceHeader.supplierNameDetected}</em>
+                  </p>
+                )}
               </div>
-              {showNewSupplierForm && (
-                <div className="mt-2 flex gap-2">
-                  <Input
-                    placeholder="Nome do fornecedor"
-                    value={newSupplierName}
-                    onChange={e => setNewSupplierName(e.target.value)}
-                    className="text-sm"
-                  />
-                  <Button size="sm" onClick={handleCreateSupplier} disabled={creatingSupplier} className="bg-emerald-600 hover:bg-emerald-700 shrink-0">
-                    {creatingSupplier ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Criar'}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowNewSupplierForm(false)}>
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              )}
-              {invoiceHeader.supplierNameDetected && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  IA detectou: <em>{invoiceHeader.supplierNameDetected}</em>
-                </p>
-              )}
-            </div>
 
-            <div>
-              <Label>Nº da Nota</Label>
-              <Input
-                className="mt-1"
-                value={invoiceHeader.invoiceNumber}
-                onChange={e => setInvoiceHeader(h => ({ ...h, invoiceNumber: e.target.value }))}
-                onBlur={handleCheckDuplicate}
-                placeholder="Ex: NF-0001"
-              />
-            </div>
+              {/* Invoice number */}
+              <div>
+                <Label className="mb-1.5 block">Nº da Nota</Label>
+                <Input
+                  value={invoiceHeader.invoiceNumber}
+                  onChange={e => setInvoiceHeader(h => ({ ...h, invoiceNumber: e.target.value }))}
+                  onBlur={handleCheckDuplicate}
+                  placeholder="Ex: NF-0001"
+                />
+              </div>
 
-            <div>
-              <Label>Data da Nota</Label>
-              <Input
-                type="date"
-                className="mt-1"
-                value={invoiceHeader.invoiceDate}
-                onChange={e => setInvoiceHeader(h => ({ ...h, invoiceDate: e.target.value }))}
-              />
-            </div>
+              {/* Date */}
+              <div>
+                <Label className="mb-1.5 block">Data da Nota</Label>
+                <Input
+                  type="date"
+                  value={invoiceHeader.invoiceDate}
+                  onChange={e => setInvoiceHeader(h => ({ ...h, invoiceDate: e.target.value }))}
+                />
+              </div>
 
-            <div>
-              <Label>Valor Total</Label>
-              <Input
-                type="number"
-                step="0.01"
-                className="mt-1"
-                value={invoiceHeader.totalAmount}
-                onChange={e => setInvoiceHeader(h => ({ ...h, totalAmount: e.target.value }))}
-              />
-            </div>
+              {/* Total */}
+              <div>
+                <Label className="mb-1.5 block">Valor Total</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={invoiceHeader.totalAmount}
+                  onChange={e => setInvoiceHeader(h => ({ ...h, totalAmount: e.target.value }))}
+                  placeholder="0,00"
+                />
+              </div>
 
-            <div>
-              <Label>Moeda</Label>
-              <Input
-                className="mt-1"
-                value={invoiceHeader.currency}
-                onChange={e => setInvoiceHeader(h => ({ ...h, currency: e.target.value }))}
-                placeholder="BRL"
-              />
+              {/* Currency */}
+              <div>
+                <Label className="mb-1.5 block">Moeda</Label>
+                <Input
+                  value={invoiceHeader.currency}
+                  onChange={e => setInvoiceHeader(h => ({ ...h, currency: e.target.value }))}
+                  placeholder="BRL"
+                />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Line items */}
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold text-foreground">
-            Itens Extraídos ({reviewLines.length})
-          </h3>
-          <span className="text-xs text-muted-foreground">
-            {stockLines.length} para estoque · {reviewLines.filter(l => l.itemType === 'ignore').length} ignorados
-          </span>
-        </div>
+          {/* ─── SECTION 3: Items ──────────────────────────────────────── */}
 
-        <div className="space-y-3 mb-8">
-          {reviewLines.map((line, idx) => {
-            const options = getItemOptions(line.itemType);
-            const isStock = line.itemType === 'ingredient' || line.itemType === 'resale_product';
-            return (
-              <div key={line._id} className={`card border ${line.itemType === 'ignore' ? 'opacity-60' : ''}`}>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground truncate">{line.rawDescription}</p>
-                    <Input
-                      className="mt-1 font-medium"
-                      value={line.suggestedName}
-                      onChange={e => updateLine(idx, 'suggestedName', e.target.value)}
-                      placeholder="Nome do item"
-                    />
-                  </div>
-                  <div className="flex gap-1 flex-wrap justify-end">
-                    {Object.keys(ITEM_TYPE_LABELS).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => updateLine(idx, 'itemType', type)}
-                        className={`text-xs px-2 py-0.5 rounded-full border transition-all ${
-                          line.itemType === type
-                            ? ITEM_TYPE_COLORS[type] + ' border-transparent font-medium'
-                            : 'border-border text-muted-foreground hover:border-primary'
-                        }`}
-                      >
-                        {ITEM_TYPE_LABELS[type]}
-                      </button>
-                    ))}
-                  </div>
+          {/* Counter bar */}
+          <div className="flex flex-wrap gap-3 mb-4">
+            <div className="flex items-center gap-1.5 text-sm">
+              <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold">
+                {reviewLines.length}
+              </span>
+              <span className="text-muted-foreground">extraídos</span>
+            </div>
+            <span className="text-muted-foreground/40">·</span>
+            <div className="flex items-center gap-1.5 text-sm">
+              <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">
+                {readyStockLines.length}
+              </span>
+              <span className="text-muted-foreground">para estoque</span>
+            </div>
+            <span className="text-muted-foreground/40">·</span>
+            <div className="flex items-center gap-1.5 text-sm">
+              <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-bold">
+                {ignoredLines.length}
+              </span>
+              <span className="text-muted-foreground">ignorados</span>
+            </div>
+            {unresolvedCount > 0 && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <div className="flex items-center gap-1.5 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-bold">
+                    {unknownLines.length + unlinkedStockLines.length}
+                  </span>
+                  <span className="text-amber-700 font-medium">pendentes</span>
                 </div>
+              </>
+            )}
+          </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                  <div>
-                    <Label className="text-xs">Quantidade</Label>
-                    <Input
-                      type="number"
-                      step="0.001"
-                      className="mt-1 text-sm"
-                      value={line.quantity}
-                      onChange={e => updateLine(idx, 'quantity', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Unidade</Label>
-                    <Input
-                      className="mt-1 text-sm"
-                      value={line.unit}
-                      onChange={e => updateLine(idx, 'unit', e.target.value)}
-                      placeholder="kg, un, L..."
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Preço unit.</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      className="mt-1 text-sm"
-                      value={line.unitPrice}
-                      onChange={e => updateLine(idx, 'unitPrice', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Total linha</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      className="mt-1 text-sm"
-                      value={line.lineTotal}
-                      onChange={e => updateLine(idx, 'lineTotal', e.target.value)}
-                    />
-                  </div>
-                </div>
+          {/* Helper text */}
+          <div className="mb-4 text-xs text-muted-foreground space-y-0.5">
+            <p>Itens marcados como <strong>Ignorar</strong> serão salvos na nota, mas não entrarão no estoque.</p>
+            <p>Itens <strong>Desconhecidos</strong> precisam ser classificados ou ignorados antes da importação.</p>
+          </div>
 
-                {isStock && (
-                  <div className="border-t border-border pt-3">
-                    <Label className="text-xs">Vincular a item existente</Label>
-                    <div className="flex gap-2 mt-1">
-                      <select
-                        className="flex-1 text-sm border border-border rounded-md px-2 py-1.5 bg-background"
-                        value={line.linkedItemId || ''}
-                        onChange={e => updateLine(idx, 'linkedItemId', e.target.value || null)}
-                      >
-                        <option value="">— Selecione —</option>
-                        {options.map(opt => (
-                          <option key={opt.id} value={opt.id}>{opt.name}{opt.unit ? ` (${opt.unit})` : ''}</option>
+          {/* Item cards */}
+          <div className="space-y-4 mb-28">
+            {reviewLines.map((line, idx) => {
+              const options = getItemOptions(line.itemType);
+              const isStock = line.itemType === 'ingredient' || line.itemType === 'resale_product';
+              const { label: statusLabel, cls: statusCls, Icon: StatusIcon } = getLineStatus(line);
+              const isUnresolved = line.itemType === 'unknown' || (isStock && !line.linkedItemId && !line.createNew);
+
+              return (
+                <div
+                  key={line._id}
+                  className={`card border-l-4 ${getBorderColor(line)} ${line.itemType === 'ignore' ? 'opacity-60' : ''} ${isUnresolved ? 'ring-1 ring-amber-200' : ''}`}
+                >
+                  {/* Row A: raw description + status badge */}
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <p className="text-xs text-muted-foreground leading-relaxed flex-1 min-w-0">
+                      <span className="font-medium text-foreground/50 mr-1">Original:</span>
+                      {line.rawDescription || <em>sem descrição</em>}
+                    </p>
+                    <span className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${statusCls}`}>
+                      <StatusIcon className="w-3 h-3" />
+                      {statusLabel}
+                    </span>
+                  </div>
+
+                  {/* Row B: editable name + type selector */}
+                  <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                    <div className="flex-1">
+                      <Label className="text-xs mb-1 block">Nome do item</Label>
+                      <Input
+                        className="font-medium"
+                        value={line.suggestedName}
+                        onChange={e => updateLine(idx, 'suggestedName', e.target.value)}
+                        placeholder="Nome do item"
+                      />
+                    </div>
+                    <div className="shrink-0">
+                      <Label className="text-xs mb-1 block">Tipo</Label>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {Object.keys(ITEM_TYPE_LABELS).map(type => (
+                          <button
+                            key={type}
+                            onClick={() => {
+                              updateLine(idx, 'itemType', type);
+                              if (type === 'ignore' || type === 'unknown') {
+                                updateLine(idx, 'linkedItemId', null);
+                                updateLine(idx, 'createNew', false);
+                              }
+                            }}
+                            className={`text-xs px-3 py-1.5 rounded-full border transition-all font-medium ${
+                              line.itemType === type
+                                ? ITEM_TYPE_COLORS[type] + ' border-transparent'
+                                : 'border-border text-muted-foreground hover:border-primary hover:text-foreground'
+                            }`}
+                          >
+                            {ITEM_TYPE_LABELS[type]}
+                          </button>
                         ))}
-                      </select>
-                      {!line.linkedItemId && (
-                        <button
-                          onClick={() => updateLine(idx, 'createNew', !line.createNew)}
-                          className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-md border transition-colors ${
-                            line.createNew
-                              ? 'bg-emerald-600 text-white border-emerald-600'
-                              : 'border-border text-muted-foreground hover:border-emerald-600 hover:text-emerald-600'
-                          }`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row C: quantities */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    <div>
+                      <Label className="text-xs mb-1 block">Quantidade</Label>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        value={line.quantity}
+                        onChange={e => updateLine(idx, 'quantity', e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs mb-1 block">Unidade</Label>
+                      <Input
+                        value={line.unit}
+                        onChange={e => updateLine(idx, 'unit', e.target.value)}
+                        placeholder="kg, un, L..."
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs mb-1 block">Preço unitário</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={e => updateLine(idx, 'unitPrice', e.target.value)}
+                        placeholder="0,00"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs mb-1 block">Total da linha</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={line.lineTotal}
+                        onChange={e => updateLine(idx, 'lineTotal', e.target.value)}
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row D: linking area (only for stock items) */}
+                  {isStock && (
+                    <div className="pt-4 border-t border-border">
+                      <Label className="text-xs mb-2 block text-muted-foreground font-medium uppercase tracking-wide">
+                        Vínculo com estoque
+                      </Label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <select
+                          className="flex-1 text-sm border border-border rounded-md px-3 py-2 bg-background"
+                          value={line.linkedItemId || ''}
+                          onChange={e => {
+                            updateLine(idx, 'linkedItemId', e.target.value || null);
+                            if (e.target.value) updateLine(idx, 'createNew', false);
+                          }}
                         >
-                          <PlusCircle className="w-3 h-3" />
-                          Criar novo
-                        </button>
+                          <option value="">— Selecionar item existente —</option>
+                          {options.map(opt => (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.name}{opt.unit ? ` (${opt.unit})` : ''}
+                            </option>
+                          ))}
+                        </select>
+
+                        {!line.linkedItemId && (
+                          <button
+                            onClick={() => updateLine(idx, 'createNew', !line.createNew)}
+                            className={`flex items-center justify-center gap-1.5 text-sm px-4 py-2 rounded-md border transition-colors shrink-0 font-medium ${
+                              line.createNew
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-border text-muted-foreground hover:border-blue-500 hover:text-blue-600'
+                            }`}
+                          >
+                            <PlusCircle className="w-4 h-4" />
+                            {line.createNew ? 'Será criado' : 'Criar novo item'}
+                          </button>
+                        )}
+
+                        {line.linkedItemId && (
+                          <button
+                            onClick={() => updateLine(idx, 'linkedItemId', null)}
+                            className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-md shrink-0 hover:bg-emerald-100 transition-colors"
+                          >
+                            <Link2 className="w-3.5 h-3.5" />
+                            Vinculado · Remover
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Feedback text */}
+                      {!line.linkedItemId && !line.createNew && (
+                        <p className="text-xs text-amber-600 mt-2 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          Selecione um item existente ou marque "Criar novo item" para atualizar o estoque.
+                        </p>
+                      )}
+                      {line.createNew && (
+                        <p className="text-xs text-blue-600 mt-2 flex items-center gap-1.5">
+                          <PlusCircle className="w-3 h-3 shrink-0" />
+                          Um novo {line.itemType === 'ingredient' ? 'ingrediente' : 'produto de revenda'} será criado ao importar.
+                        </p>
                       )}
                       {line.linkedItemId && (
-                        <div className="flex items-center gap-1 text-xs text-emerald-600">
-                          <Link2 className="w-3 h-3" />
-                          Vinculado
-                        </div>
+                        <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          Estoque e custo médio serão atualizados para este item.
+                        </p>
                       )}
                     </div>
-                    {!line.linkedItemId && !line.createNew && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        Vincule a um item ou marque "Criar novo" para atualizar o estoque.
-                      </p>
-                    )}
-                  </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sticky bottom action bar */}
+          <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-sm border-t border-border shadow-lg px-4 py-3">
+            <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
+              <div className="text-sm">
+                {canImport ? (
+                  <span className="text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Pronto para importar — {readyStockLines.length} item(ns) afetarão o estoque.
+                  </span>
+                ) : (
+                  <span className="text-amber-700 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" />
+                    {unresolvedCount} pendência(s) impedem a importação.
+                  </span>
                 )}
               </div>
-            );
-          })}
+              <div className="flex gap-2 shrink-0">
+                <Button variant="outline" onClick={resetAll} disabled={isSaving}>Cancelar</Button>
+                <Button
+                  onClick={handleImport}
+                  disabled={!canImport}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isSaving
+                    ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Importando...</>
+                    : <><CheckCircle2 className="w-4 h-4 mr-2" />Confirmar e Importar</>}
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
-
-        <div className="flex justify-end gap-3 sticky bottom-4">
-          <Button variant="outline" onClick={resetAll}>Cancelar</Button>
-          <Button
-            onClick={handleImport}
-            disabled={isSaving}
-            className="bg-emerald-600 hover:bg-emerald-700"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-            Confirmar e Importar
-          </Button>
-        </div>
-      </div>
       </Layout>
     );
   }

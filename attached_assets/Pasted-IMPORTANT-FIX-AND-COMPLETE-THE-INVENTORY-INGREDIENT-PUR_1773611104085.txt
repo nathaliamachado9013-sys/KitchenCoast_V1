@@ -1,0 +1,320 @@
+IMPORTANT:
+FIX AND COMPLETE THE INVENTORY / INGREDIENT / PURCHASE FLOW.
+DO NOT REDESIGN THE WHOLE SaaS.
+DO NOT REBUILD EXISTING MODULES FROM SCRATCH.
+DO NOT CHANGE WORKING FEATURES OUTSIDE THIS SCOPE.
+ONLY COMPLETE THE OPERATIONAL LOGIC SO THE SYSTEM WORKS CORRECTLY END TO END.
+
+GOAL:
+The current system structure exists, but the operational flow between purchases, ingredients, resale products, stock, and cost updates is incomplete or inconsistent.
+
+We need to make the business logic explicit and working.
+
+==================================================
+CORE BUSINESS LOGIC WE WANT
+==================================================
+
+The system must follow this logic:
+
+1. Ingredientes = master catalog of kitchen ingredients
+2. Produtos de Revenda = master catalog of ready-made resale products
+3. Estoque = current inventory state based on stock movements
+4. Compras / Notas = source of stock entries
+5. Produção = consumes ingredient stock
+6. Vendas = consumes stock or records sold items depending on current system rules
+7. Recipe current cost = based on current average ingredient cost
+8. Historical sales cost = frozen at time of sale
+
+This logic must be implemented consistently.
+
+==================================================
+PART 1 — DEFINE THE ROLE OF EACH MODULE
+==================================================
+
+Ingrediente:
+- is a master item used in recipes and stock
+- stores the identity of a kitchen input
+- example: tomate, arroz, azeite
+
+Produto de Revenda:
+- is a master item sold ready-made, not produced by recipe
+- example: refrigerante, vinho, água
+
+Estoque:
+- is NOT a separate master catalog
+- it is the current inventory state derived from items + stock movements
+- shows quantity, average cost, stock value, minimum stock, and status
+
+Compras / Notas:
+- create stock entry movements
+- may create new ingredient or resale product only with user confirmation
+- update inventory and costs
+
+This distinction must be respected in code and UI.
+
+==================================================
+PART 2 — WHAT HAPPENS WHEN AN INVOICE IS IMPORTED
+==================================================
+
+For each confirmed invoice line:
+
+If line type = ingredient:
+1. link to existing ingredient OR create new ingredient if user confirmed
+2. create stock entry movement
+3. increase ingredient stock quantity
+4. update ingredient average cost using weighted average cost
+5. update inventory value
+
+If line type = resale_product:
+1. link to existing resale product OR create new resale product if user confirmed
+2. create stock entry movement
+3. increase product stock quantity
+4. update average cost if resale products use stock cost tracking
+5. update inventory value
+
+If line type = ignore:
+- save line in invoice record only
+- do not affect stock
+
+If line type = unknown:
+- block import until resolved or ignored
+
+==================================================
+PART 3 — INGREDIENTS PAGE MUST REFLECT REAL DATA
+==================================================
+
+The Ingredientes page must show real items that exist in the ingredient catalog.
+
+For each ingredient show:
+- name
+- category
+- current average cost per unit
+- current stock quantity
+- stock status
+- main supplier if available
+- notes
+
+If an ingredient is created from invoice import, it must appear in Ingredientes.
+
+If stock is updated by purchases, the current stock shown in Ingredientes must also reflect this.
+
+==================================================
+PART 4 — RESALE PRODUCTS PAGE MUST REFLECT REAL DATA
+==================================================
+
+The Produtos de Revenda page must show real resale products created manually or from invoice import.
+
+For each product show:
+- name
+- category
+- average or tracked cost
+- current stock quantity
+- status
+- supplier if available
+
+If a resale product is created from invoice import, it must appear here.
+
+==================================================
+PART 5 — ESTOQUE PAGE MUST SHOW THE CURRENT INVENTORY STATE
+==================================================
+
+The Estoque page must not be an isolated or empty page if items already exist.
+
+It must display the real current stock state derived from ingredients and resale products.
+
+At minimum show:
+- item name
+- item type (ingredient or resale product if useful)
+- current stock quantity
+- minimum stock
+- current average cost per unit
+- total stock value for the item
+- status
+
+Stock page summary cards must update correctly:
+- Valor do Inventário
+- Total de Itens
+- Estoque Baixo
+
+==================================================
+PART 6 — STOCK MOVEMENTS MUST BE THE SOURCE OF TRUTH
+==================================================
+
+Every stock-affecting event must create a stock movement record.
+
+Required stock movement sources:
+- invoice import / purchase entry
+- manual stock entry
+- manual stock exit
+- production consumption
+- any other existing stock-affecting flow already in the system
+
+Do NOT update stock silently without movement records.
+
+For each stock movement store at minimum:
+- tenant_id
+- item_id
+- item_type
+- movement_type (in / out)
+- quantity
+- unit
+- unit_cost
+- total_value
+- reference_type
+- reference_id
+- created_at
+
+==================================================
+PART 7 — WEIGHTED AVERAGE COST
+==================================================
+
+Use weighted average cost as the current cost method.
+
+Formula:
+
+new_total_value = current_total_stock_value + incoming_line_total
+new_total_quantity = current_stock_quantity + incoming_quantity
+new_average_cost = new_total_value / new_total_quantity
+
+If current stock was zero:
+new_average_cost = incoming unit cost
+
+Track for each item:
+- current_stock_quantity
+- current_average_cost
+- current_total_stock_value
+
+Do NOT use last purchase price as the primary current cost logic.
+
+==================================================
+PART 8 — INVENTORY VALUE LOGIC
+==================================================
+
+Inventory total value must be calculated as:
+
+sum(item current_stock_quantity × item current_average_cost)
+
+This value must update automatically after:
+- invoice import
+- manual entry
+- manual exit
+- production consumption
+- other valid stock changes
+
+==================================================
+PART 9 — RECIPE CURRENT COST VS HISTORICAL SALES COST
+==================================================
+
+This distinction is mandatory.
+
+A. Current recipe cost
+- dynamic
+- always recalculated from current average ingredient cost
+
+Formula:
+current_recipe_cost = sum(recipe ingredient quantity × ingredient current_average_cost)
+
+B. Historical sales cost
+- frozen at moment of sale
+- never overwritten by later stock changes
+
+Sales records and profitability reports must preserve:
+- cost_at_time_of_sale
+- sale_price_at_time_of_sale
+- profit_at_time_of_sale
+- margin_at_time_of_sale
+
+Do NOT break existing reports by replacing historical cost with current cost.
+
+==================================================
+PART 10 — SUPPLIER DATA INTEGRATION
+==================================================
+
+Supplier cards currently show too little information.
+
+Extend supplier cards to show useful summary data if available:
+- supplier name
+- total spent
+- total invoices
+- last purchase date
+
+Do not overcrowd the cards, but make them useful.
+
+When clicking a supplier, open the supplier detail page with:
+- Dados do Fornecedor
+- Notas
+
+Notas tab must show:
+- invoices newest first
+- search field
+- total invoices
+- total spent
+- last purchase date
+- invoice list with status and total
+
+==================================================
+PART 11 — UPDATE EMPTY / INCOMPLETE STATES
+==================================================
+
+The current system shows empty states even after partial feature use.
+
+Fix data flow so that:
+- created ingredients appear in Ingredientes
+- created resale products appear in Produtos de Revenda
+- stock-affecting purchases appear in Estoque
+- supplier-linked invoices appear inside supplier notes
+- inventory cards update correctly
+
+Do not leave these modules disconnected.
+
+==================================================
+PART 12 — MULTI-TENANT SAFETY
+==================================================
+
+All logic must remain tenant-safe.
+
+Every query and record must respect tenant_id:
+- ingredients
+- resale products
+- stock movements
+- inventory views
+- suppliers
+- invoices
+- purchases
+- reports
+
+==================================================
+PART 13 — WHAT NOT TO DO
+==================================================
+
+Do NOT:
+- redesign the whole UI
+- rebuild the entire database architecture
+- create duplicate master catalogs
+- make Estoque a separate disconnected catalog
+- overwrite historical profitability
+- auto-create unknown items without confirmation
+- bypass stock movements
+- leave inventory totals stale
+
+==================================================
+EXPECTED FINAL RESULT
+==================================================
+
+After this implementation:
+
+1. Ingredients are the real catalog of kitchen inputs
+2. Resale products are the real catalog of ready-made sold items
+3. Stock is the live inventory state derived from stock movements
+4. Imported invoice items correctly create or link master items
+5. Invoice import creates stock entries and updates quantities
+6. Weighted average cost updates correctly
+7. Inventory total value updates correctly
+8. Ingredients page shows real current stock and cost data
+9. Resale products page shows real current stock and cost data
+10. Stock page shows the actual inventory state
+11. Supplier cards and supplier detail pages show useful purchase/note data
+12. Current recipe cost stays dynamic
+13. Historical sales cost remains frozen
+
+This is an operational flow completion task, not a redesign task.
