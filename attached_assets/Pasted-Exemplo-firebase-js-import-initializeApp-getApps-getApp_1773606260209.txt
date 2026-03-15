@@ -1,0 +1,248 @@
+Exemplo firebase.js
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+
+// Configuração do Firebase
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+// Inicializa o app UMA vez
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+// -----------------------------
+// APP CHECK
+// -----------------------------
+// Use a SITE KEY do reCAPTCHA v3
+// Nunca use a Secret Key no frontend
+const isLocalhost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
+// Em localhost, é melhor usar debug token
+if (isLocalhost) {
+  // true faz o SDK gerar/logar um token de debug no console
+  // Você pode trocar por uma string fixa depois, se quiser
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+
+let appCheck;
+
+try {
+  appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(
+      import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY
+    ),
+    isTokenAutoRefreshEnabled: true,
+  });
+  console.log("App Check inicializado com sucesso.");
+} catch (error) {
+  console.error("Erro ao inicializar App Check:", error);
+}
+
+// -----------------------------
+// AUTH
+// -----------------------------
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+
+// Opcional: força seleção de conta no login Google
+googleProvider.setCustomParameters({
+  prompt: "select_account",
+});
+
+// -----------------------------
+// FIRESTORE
+// -----------------------------
+const db = getFirestore(app);
+
+export { app, appCheck, auth, db, googleProvider };
+Exemplo firebase.ts com TypeScript
+import { FirebaseApp, getApp, getApps, initializeApp } from "firebase/app";
+import {
+  AppCheck,
+  initializeAppCheck,
+  ReCaptchaV3Provider,
+} from "firebase/app-check";
+import { Auth, getAuth, GoogleAuthProvider } from "firebase/auth";
+import { Firestore, getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID as string,
+};
+
+const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+const isLocalhost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
+if (isLocalhost) {
+  // @ts-ignore
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
+
+let appCheck: AppCheck | undefined;
+
+try {
+  appCheck = initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(
+      import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY as string
+    ),
+    isTokenAutoRefreshEnabled: true,
+  });
+  console.log("App Check inicializado com sucesso.");
+} catch (error) {
+  console.error("Erro ao inicializar App Check:", error);
+}
+
+const auth: Auth = getAuth(app);
+const db: Firestore = getFirestore(app);
+
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: "select_account",
+});
+
+export { app, appCheck, auth, db, googleProvider };
+Exemplo de .env
+
+Se estiver usando Vite:
+
+VITE_FIREBASE_API_KEY=xxxx
+VITE_FIREBASE_AUTH_DOMAIN=kitchencost-e1a2e.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=kitchencost-e1a2e
+VITE_FIREBASE_STORAGE_BUCKET=kitchencost-e1a2e.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=xxxx
+VITE_FIREBASE_APP_ID=xxxx
+VITE_FIREBASE_RECAPTCHA_SITE_KEY=xxxx
+Pontos que precisam estar corretos
+1. A chave do App Check no código
+
+Tem que ser:
+
+VITE_FIREBASE_RECAPTCHA_SITE_KEY
+
+e ela precisa ser a SITE KEY do reCAPTCHA v3.
+
+Nunca use no frontend:
+
+secret key
+
+api secret
+
+chave privada
+
+2. Só pode haver uma inicialização
+
+Se no projeto existir:
+
+firebase.js
+
+firebaseConfig.js
+
+services/firebase.js
+
+main.jsx inicializando Firebase de novo
+
+isso pode quebrar tudo.
+
+O certo é:
+
+um arquivo central
+
+todo o resto importa dele
+
+3. App Check vem antes do Auth
+
+Ordem correta:
+
+initializeApp
+
+initializeAppCheck
+
+getAuth
+
+getFirestore
+
+4. Em localhost
+
+Se estiver rodando localmente, o debug token precisa ser tratado.
+
+Quando você abrir o app no navegador, o console pode mostrar um token parecido com isso:
+
+App Check debug token: "12345abc..."
+
+Esse token precisa ser registrado no Firebase Console em App Check > Manage debug tokens, se você estiver usando debug provider. A documentação do Firebase orienta registrar esse token para desenvolvimento local.
+
+Exemplo de uso no login com Google
+import { signInWithPopup } from "firebase/auth";
+import { auth, googleProvider } from "./firebase";
+
+export async function loginWithGoogle() {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (error) {
+    console.error("Erro no login com Google:", error);
+    throw error;
+  }
+}
+Exemplo de criação de conta
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from "./firebase";
+
+export async function registerWithEmail(email, password) {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    return result.user;
+  } catch (error) {
+    console.error("Erro ao criar conta:", error);
+    throw error;
+  }
+}
+O que eu suspeito no seu caso
+
+Pelo erro que você mostrou, eu investigaria primeiro estas 5 coisas:
+
+está usando secret key no ReCaptchaV3Provider em vez de site key
+
+o App Check está sendo chamado depois do Auth
+
+há duas inicializações do Firebase
+
+ficou algum debug token inválido
+
+o app está tentando usar App Check em produção/local com configuração misturada
+
+Prompt curto para o agente comparar com esse modelo
+Compare a implementação atual do Firebase no projeto KitchenCost com este modelo de referência.
+
+Objetivo:
+corrigir o erro auth/firebase-app-check-token-is-invalid que está quebrando:
+- login com Google
+- login com email/senha
+- criação de conta
+
+Verifique obrigatoriamente:
+1. se o App Check está sendo inicializado com a SITE KEY correta
+2. se alguém usou a secret key no frontend por engano
+3. se initializeAppCheck roda antes de getAuth
+4. se há mais de uma inicialização do Firebase
+5. se há lógica incorreta para localhost/debug token
+6. se a estrutura atual está misturando produção e debug provider
+7. se o código atual pode estar gerando token inválido por ordem errada de execução
+
+Corrija a implementação para seguir um padrão limpo, centralizado e compatível com produção.
