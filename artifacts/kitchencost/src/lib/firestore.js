@@ -1015,5 +1015,18 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
       averageCost: newAvgCost,
       updatedAt: serverTimestamp(),
     });
+
+    await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+      type: 'in',
+      resaleProductId: linkedItemId,
+      ingredientName: current.name,
+      quantity,
+      unit: unit || '',
+      unitCost: unitPrice,
+      averageCostAfter: newAvgCost,
+      invoiceId,
+      notes: `Importado da nota fiscal — ${rawDescription || confirmedName || ''}`,
+      createdAt: serverTimestamp(),
+    });
   }
 };

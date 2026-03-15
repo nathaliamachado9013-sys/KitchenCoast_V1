@@ -1,0 +1,332 @@
+IMPORTANT: FIX AND COMPLETE THE EXISTING PURCHASE / INVOICE FEATURE.
+DO NOT REDESIGN PAGES.
+DO NOT REBUILD THE UI FROM SCRATCH.
+DO NOT REFACTOR THE WHOLE SYSTEM.
+DO NOT CHANGE WORKING MODULES OUTSIDE THIS SCOPE.
+ONLY COMPLETE AND CORRECT THE INVOICE IMPORT, SUPPLIER NOTE HISTORY, AND STOCK EFFECTS ACCORDING TO THE SPEC BELOW.
+
+The current invoice upload/review page already exists and works partially:
+- invoice file can be uploaded
+- AI extraction works
+- user can review extracted fields
+- supplier can be selected/created
+
+However, the operational workflow is incomplete.
+
+==================================================
+MAIN PROBLEMS TO FIX
+==================================================
+
+1. Importing the invoice does NOT create the expected stock updates
+2. Importing does NOT create the complete purchase/invoice operational records
+3. Supplier is created, but saved invoices do NOT appear inside that supplier
+4. Supplier page is missing:
+   - "Notas" tab behavior as planned
+   - reverse chronological invoice list
+   - search field
+   - supplier purchase summary metrics
+5. The implemented behavior does NOT match the previously defined business rules
+
+==================================================
+BUSINESS RULES THAT MUST BE IMPLEMENTED EXACTLY
+==================================================
+
+A. The invoice is a saved document, not only a temporary extraction step
+B. Every imported invoice must be linked to exactly one supplier before final import
+C. Human review is mandatory before stock update
+D. New stock items may be created only with user confirmation
+E. Invoice must have statuses
+F. Duplicate invoice protection is required
+G. The original uploaded file must be saved
+H. Supplier detail page must show linked invoices in a "Notas" tab
+I. Invoice search must exist inside supplier notes tab
+J. Stock updates must reuse the current system stock logic
+K. Cost updates must use weighted average cost, not last purchase price
+L. Historical sales cost must remain frozen and not be overwritten by current average cost
+
+==================================================
+PART 1 — FIX FINAL IMPORT FLOW
+==================================================
+
+When user clicks "Importar" in the invoice review page, the system must perform ALL of the following:
+
+1. Save the invoice document record
+2. Save the confirmed purchase record
+3. Save purchase lines
+4. Link invoice to the selected supplier
+5. Save the original file reference (image or PDF)
+6. Change invoice status to "imported" when import succeeds
+7. Create stock movements only for valid stock-affecting lines
+8. Update stock quantities
+9. Recalculate weighted average cost for affected items
+10. Make the invoice visible in the supplier "Notas" tab
+11. Keep ignored/non-stock lines saved in the invoice record, but do NOT move stock for them
+
+DO NOT just close the page or show success.
+The import must create real backend records and real stock effects.
+
+==================================================
+PART 2 — REQUIRED DATA PROCESSING PER LINE
+==================================================
+
+For each confirmed invoice line, the system must support these actions:
+
+- link to existing ingredient
+- link to existing resale product
+- create new ingredient (only if user confirmed)
+- create new resale product (only if user confirmed)
+- ignore line
+
+Rules:
+
+If line type = ingredient:
+- link or create ingredient
+- create stock movement
+- update stock quantity
+- update weighted average cost
+
+If line type = resale_product:
+- link or create resale product
+- create stock movement
+- update stock quantity
+- update weighted average cost if resale products use stock cost tracking in the current system
+
+If line type = ignore:
+- save line inside invoice record
+- do NOT create stock movement
+
+If line type = unknown:
+- block final import unless user resolves the line or marks it as ignore
+
+==================================================
+PART 3 — DUPLICATE INVOICE PROTECTION
+==================================================
+
+Before final import, validate possible duplicate invoices using at least:
+
+- tenant_id
+- supplier_id
+- invoice_number
+- invoice_date
+- total_amount
+
+If a likely duplicate exists:
+- show warning
+- prevent silent duplicate import
+- require explicit user decision
+
+Also prevent duplicate stock movements if the same invoice import is retried.
+
+==================================================
+PART 4 — INVOICE STATUS
+==================================================
+
+Use these statuses consistently:
+
+- draft
+- extracted
+- in_review
+- imported
+- with_divergence
+- cancelled
+
+Suggested behavior:
+- file uploaded → draft
+- extraction completed → extracted
+- user editing review → in_review
+- final import complete → imported
+- mismatch/problem flagged → with_divergence
+- discarded → cancelled
+
+==================================================
+PART 5 — SAVE ORIGINAL INVOICE DOCUMENT
+==================================================
+
+Every invoice must keep:
+- original file URL
+- file type
+- extracted JSON
+- confirmed JSON
+- supplier snapshot
+- invoice number
+- invoice date
+- total amount
+- status
+- timestamps
+
+This is mandatory for future consultation and audit trail.
+
+==================================================
+PART 6 — SUPPLIER DETAIL PAGE
+==================================================
+
+Keep the existing supplier card/list page.
+Do NOT redesign it unnecessarily.
+
+When user clicks a supplier, the supplier detail page must contain tabs:
+
+- Dados do Fornecedor
+- Notas
+
+If the detail page already exists, extend it only.
+
+==================================================
+PART 7 — SUPPLIER "NOTAS" TAB
+==================================================
+
+Implement the "Notas" tab exactly as planned.
+
+Requirements:
+
+1. Show all invoices linked to this supplier
+2. Order invoices by most recent first
+3. Add a search field
+4. Add supplier purchase summary metrics at the top
+5. Allow opening invoice details / file
+
+Each invoice entry should show at minimum:
+- invoice_date
+- invoice_number
+- total_amount
+- status
+- item_count
+- button/link to open details
+
+Top summary in supplier notes tab should show:
+- total invoices
+- total spent with this supplier
+- last purchase date
+
+If easy and safe, also show:
+- average invoice value
+
+==================================================
+PART 8 — SEARCH IN SUPPLIER NOTES TAB
+==================================================
+
+Add a search field inside the supplier "Notas" tab.
+
+Search should work against at least:
+- invoice_number
+- raw item description
+- confirmed item name
+- total_amount
+
+If easy and safe, also allow simple date filtering.
+Do not overengineer.
+
+==================================================
+PART 9 — WEIGHTED AVERAGE COST (REQUIRED)
+==================================================
+
+Use weighted average cost as the current cost method.
+
+Do NOT use last purchase price as the main cost logic.
+Do NOT implement FIFO in this cycle.
+
+Formula:
+
+new_total_value = current_total_stock_value + purchase_line_total
+new_total_quantity = current_stock_quantity + purchase_quantity
+new_average_cost = new_total_value / new_total_quantity
+
+If current stock was zero before purchase:
+new_average_cost = purchase unit cost
+
+Track for each stock item:
+- current_stock_quantity
+- current_average_cost
+- current_total_stock_value
+
+Also record historical cost movement info for each purchase/import:
+- date
+- quantity added
+- unit_price
+- line_total
+- resulting_average_cost
+
+==================================================
+PART 10 — RECIPE COST AND HISTORICAL SALES SAFETY
+==================================================
+
+Dynamic current recipe cost must use CURRENT average ingredient cost.
+
+Rule:
+current_recipe_cost = sum(recipe ingredient quantity × ingredient current_average_cost)
+
+This should update current cost automatically without editing the recipe.
+
+However:
+historical sales must remain frozen.
+
+Sales records and profitability reports must preserve:
+- cost_at_time_of_sale
+- sale_price_at_time_of_sale
+- profit_at_time_of_sale
+- margin_at_time_of_sale
+
+Do NOT overwrite historical profitability using current average ingredient cost.
+
+==================================================
+PART 11 — REUSE EXISTING STOCK LOGIC
+==================================================
+
+The invoice import flow must reuse the current stock movement / stock entry logic already used elsewhere in the system.
+
+Do NOT build a separate parallel stock logic path.
+Do NOT bypass the existing stock update rules.
+
+==================================================
+PART 12 — MULTI-TENANT SAFETY
+==================================================
+
+All new or fixed queries must respect tenant isolation.
+
+Every invoice, purchase, supplier note query, stock movement, and import action must include tenant_id.
+
+No cross-tenant leakage is allowed.
+
+==================================================
+PART 13 — DO NOT CHANGE THESE THINGS
+==================================================
+
+Do NOT:
+- redesign the invoice review UI
+- redesign supplier cards page
+- refactor the whole backend
+- rebuild dashboard
+- rebuild cardápio
+- replace existing working stock screens
+- overwrite analytics architecture
+- auto-create items without confirmation
+- auto-import unresolved lines
+- silently ignore failed stock updates
+
+==================================================
+PART 14 — EXPECTED FINAL RESULT
+==================================================
+
+After this fix, the feature must work like this:
+
+1. User uploads photo or PDF invoice
+2. AI extracts invoice data
+3. User reviews and edits fields
+4. User selects or creates supplier
+5. User links or creates stock items with confirmation
+6. User clicks "Importar"
+7. System saves invoice document
+8. System saves purchase record and lines
+9. System creates stock movements
+10. System updates stock quantities
+11. System recalculates weighted average cost
+12. System links invoice to supplier
+13. Invoice appears in supplier "Notas" tab
+14. Supplier notes tab shows:
+   - invoices ordered by newest first
+   - search field
+   - total invoices
+   - total spent
+   - last purchase
+15. Historical sales profitability remains correct
+
+This is a completion/correction task, not a redesign task.

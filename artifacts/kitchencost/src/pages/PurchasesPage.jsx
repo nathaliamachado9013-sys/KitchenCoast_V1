@@ -12,6 +12,7 @@ import {
 import {
   getSuppliers, createSupplier,
   getIngredients, getResaleProducts,
+  createIngredient, createResaleProduct,
   createInvoice, updateInvoice,
   checkDuplicateInvoice, importInvoiceLineToStock,
 } from '../lib/firestore';
@@ -202,6 +203,16 @@ const PurchasesPage = () => {
       return;
     }
 
+    const unknownLines = reviewLines.filter(l => l.itemType === 'unknown');
+    if (unknownLines.length > 0) {
+      toast({
+        title: `${unknownLines.length} item(ns) com tipo desconhecido`,
+        description: 'Classifique todos os itens ou marque como "Ignorar" antes de importar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const unlinkedStockLines = stockLines.filter(l => !l.linkedItemId && !l.createNew);
     if (unlinkedStockLines.length > 0) {
       toast({
@@ -240,14 +251,44 @@ const PurchasesPage = () => {
         attachmentMeta = await uploadInvoiceFile(restaurant.id, invoiceId, selectedFile, user?.uid || '');
         fileUrl = attachmentMeta.url;
       } catch (uploadErr) {
-        // Upload failed — continue without file URL, will be saved as empty
         console.warn('Cloudinary upload failed:', uploadErr.message);
       }
 
-      const confirmedLines = [];
+      // Work on a mutable copy so we can store newly created item IDs
+      const workingLines = reviewLines.map(l => ({ ...l }));
       let stockUpdateErrors = 0;
 
-      for (const line of reviewLines) {
+      // First pass: create new items for lines with createNew = true
+      for (const line of workingLines) {
+        if (!line.createNew || line.linkedItemId) continue;
+        try {
+          if (line.itemType === 'ingredient') {
+            const newItem = await createIngredient(restaurant.id, {
+              name: line.suggestedName,
+              unit: line.unit || '',
+              costPerUnit: 0,
+              currentStock: 0,
+              minStock: 0,
+            });
+            line.linkedItemId = newItem.id;
+          } else if (line.itemType === 'resale_product') {
+            const newItem = await createResaleProduct(restaurant.id, {
+              name: line.suggestedName,
+              cost: 0,
+              salePrice: 0,
+              stockQuantity: 0,
+            });
+            line.linkedItemId = newItem.id;
+          }
+        } catch (err) {
+          console.error('Falha ao criar item:', err);
+          stockUpdateErrors++;
+        }
+      }
+
+      // Second pass: import stock for all linked lines
+      const confirmedLines = [];
+      for (const line of workingLines) {
         const qty = parseFloat(line.quantity) || 0;
         const unitPrice = parseFloat(line.unitPrice) || 0;
         const lineTotal = parseFloat(line.lineTotal) || qty * unitPrice;
@@ -264,12 +305,13 @@ const PurchasesPage = () => {
               unitPrice,
               lineTotal,
             });
+            confirmedLines.push({ ...line, qty, unitPrice, lineTotal, status: 'imported' });
           } catch {
             stockUpdateErrors++;
+            confirmedLines.push({ ...line, status: 'error' });
           }
-          confirmedLines.push({ ...line, qty, unitPrice, lineTotal, status: 'imported' });
         } else {
-          confirmedLines.push({ ...line, status: line.createNew ? 'pending_creation' : 'ignored' });
+          confirmedLines.push({ ...line, status: line.itemType === 'ignore' ? 'ignored' : 'skipped' });
         }
       }
 
@@ -280,9 +322,13 @@ const PurchasesPage = () => {
         status: stockUpdateErrors > 0 ? 'with_divergence' : 'imported',
       });
 
+      const importedCount = workingLines.filter(
+        l => (l.itemType === 'ingredient' || l.itemType === 'resale_product') && l.linkedItemId
+      ).length;
+
       setSavedResult({
         invoiceId,
-        stockLinesImported: stockLines.filter(l => l.linkedItemId).length,
+        stockLinesImported: importedCount,
         totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
         stockUpdateErrors,
         fileUrl,
