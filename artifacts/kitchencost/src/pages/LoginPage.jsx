@@ -17,7 +17,7 @@ const GoogleIcon = () => (
 );
 
 const LoginPage = () => {
-  const { loginWithEmail, loginWithGoogle, registerWithEmail } = useAuth();
+  const { loginWithEmail, loginWithGoogle, registerWithEmail, redirectError, redirectLoading } = useAuth();
   const { executeRecaptcha } = useGoogleReCaptcha();
   const { toast } = useToast();
   const [mode, setMode] = useState('login');
@@ -58,29 +58,14 @@ const LoginPage = () => {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
+      // Page will redirect to Google — execution stops here
     } catch (error) {
-      console.error('Google login error:', {
-        code: error?.code,
-        message: error?.message,
-        customData: error?.customData,
-        serverResponse: error?.customData?.serverResponse,
-        full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      console.error('Google redirect initiation error:', error?.code, error?.message);
+      toast({
+        title: 'Erro ao iniciar login com Google',
+        description: error?.message || 'Tente novamente.',
+        variant: 'destructive',
       });
-      const code = error?.code || '';
-      const msg =
-        code === 'auth/popup-blocked'
-          ? 'O popup foi bloqueado pelo browser. Permita popups para este site e tente novamente.'
-          : code === 'auth/popup-closed-by-user'
-          ? 'O login foi cancelado.'
-          : code === 'auth/unauthorized-domain'
-          ? 'Domínio não autorizado no Firebase. Adicione este domínio nas configurações de Auth.'
-          : code === 'auth/operation-not-allowed'
-          ? 'Login com Google não está ativado no Firebase. Ative em Authentication → Sign-in methods.'
-          : code === 'auth/cancelled-popup-request'
-          ? 'Pedido cancelado. Tente novamente.'
-          : `Erro ao entrar com Google. (${code || error?.message || 'desconhecido'})`;
-      toast({ title: 'Erro ao entrar com Google', description: msg, variant: 'destructive' });
-    } finally {
       setGoogleLoading(false);
     }
   };
@@ -98,13 +83,19 @@ const LoginPage = () => {
 
         <Button
           variant="outline"
-          className="w-full mb-4 gap-3 h-11"
+          className="w-full mb-2 gap-3 h-11"
           onClick={handleGoogle}
-          disabled={googleLoading || loading}
+          disabled={googleLoading || loading || redirectLoading}
         >
-          {googleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
-          Continuar com Google
+          {(googleLoading || redirectLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
+          {redirectLoading ? 'A verificar...' : 'Continuar com Google'}
         </Button>
+
+        {redirectError && (
+          <p className="text-xs text-destructive text-center mb-3 px-2">
+            Erro Google: {redirectError}
+          </p>
+        )}
 
         <div className="relative mb-4">
           <div className="absolute inset-0 flex items-center">

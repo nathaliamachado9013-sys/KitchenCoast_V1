@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   updateProfile,
@@ -23,6 +24,8 @@ export const AuthProvider = ({ children }) => {
   const [restaurant, setRestaurant] = useState(null);
   const [memberRole, setMemberRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [redirectLoading, setRedirectLoading] = useState(false);
+  const [redirectError, setRedirectError] = useState(null);
 
   const currency = restaurant?.currency || 'BRL';
 
@@ -47,6 +50,30 @@ export const AuthProvider = ({ children }) => {
       setRestaurant(null);
       setMemberRole(null);
     }
+  }, []);
+
+  useEffect(() => {
+    // Handle redirect result on page load (after Google redirect)
+    setRedirectLoading(true);
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          // User signed in via redirect — onAuthStateChanged will handle the rest
+        }
+        setRedirectError(null);
+      })
+      .catch((error) => {
+        console.error('Google redirect error:', {
+          code: error?.code,
+          message: error?.message,
+          customData: error?.customData,
+          serverResponse: error?.customData?.serverResponse,
+        });
+        setRedirectError(error?.code || error?.message || 'Erro ao entrar com Google.');
+      })
+      .finally(() => {
+        setRedirectLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -75,8 +102,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const loginWithGoogle = async () => {
-    const cred = await signInWithPopup(auth, googleProvider);
-    return cred.user;
+    setRedirectError(null);
+    await signInWithRedirect(auth, googleProvider);
+    // Page will redirect — no return value
   };
 
   const logout = async () => {
@@ -99,7 +127,9 @@ export const AuthProvider = ({ children }) => {
       user,
       restaurant,
       currency,
-      loading,
+      loading: loading || redirectLoading,
+      redirectLoading,
+      redirectError,
       memberRole,
       isOwner,
       isAdmin,
