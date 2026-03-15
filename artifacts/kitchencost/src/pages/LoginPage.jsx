@@ -59,7 +59,13 @@ const LoginPage = () => {
     try {
       await loginWithGoogle();
     } catch (error) {
-      console.error('Google login error:', error?.code, error?.message, error);
+      console.error('Google login error:', {
+        code: error?.code,
+        message: error?.message,
+        customData: error?.customData,
+        serverResponse: error?.customData?.serverResponse,
+        full: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+      });
       const code = error?.code || '';
       const msg =
         code === 'auth/popup-blocked'
