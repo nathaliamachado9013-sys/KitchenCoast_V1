@@ -58,8 +58,21 @@ const LoginPage = () => {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-    } catch {
-      toast({ title: 'Erro', description: 'Erro ao entrar com Google. Tente novamente.', variant: 'destructive' });
+    } catch (error) {
+      const code = error?.code || '';
+      const msg =
+        code === 'auth/popup-blocked'
+          ? 'O popup foi bloqueado pelo browser. Permita popups para este site e tente novamente.'
+          : code === 'auth/popup-closed-by-user'
+          ? 'O login foi cancelado.'
+          : code === 'auth/unauthorized-domain'
+          ? 'Domínio não autorizado no Firebase. Adicione este domínio nas configurações de Auth.'
+          : code === 'auth/operation-not-allowed'
+          ? 'Login com Google não está ativado no Firebase. Ative em Authentication → Sign-in methods.'
+          : code === 'auth/cancelled-popup-request'
+          ? 'Pedido cancelado. Tente novamente.'
+          : `Erro ao entrar com Google. (${code || error?.message || 'desconhecido'})`;
+      toast({ title: 'Erro ao entrar com Google', description: msg, variant: 'destructive' });
     } finally {
       setGoogleLoading(false);
     }
