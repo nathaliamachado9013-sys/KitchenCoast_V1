@@ -1,0 +1,157 @@
+The latest Gemini models, like Gemini 3.1 Flash Image (Nano Banana 2), are available to use with Firebase AI Logic on all platforms!
+
+Gemini 2.0 Flash and Flash-Lite models will be retired on June 1, 2026. To avoid service disruption, update to a newer model like gemini-2.5-flash-lite. Also, Gemini 3 Pro Preview (gemini-3-pro-preview) will be retired on March 9, 2026 (update to Gemini 3.1 Pro Preview: gemini-3.1-pro-preview). Learn more.
+Firebase
+Documentation
+Firebase AI Logic
+AI
+Isso foi útil?
+
+Envie comentáriosComeçar a usar a API Gemini com os SDKs de lógica de IA do Firebase
+
+Este guia mostra como começar a fazer chamadas para o Gemini API diretamente do seu app usando os SDKs de cliente Firebase AI Logic para a plataforma escolhida.
+
+Você também pode usar este guia para começar a acessar modelos do Imagen usando os SDKs do Firebase AI Logic.
+
+Pré-requisitos
+Swift
+Kotlin
+Java
+Web
+Dart
+Unity
+Neste guia, pressupomos que você já sabe usar o Xcode para desenvolver apps para plataformas da Apple (como o iOS).
+
+Verifique se o ambiente de desenvolvimento e o app para plataformas Apple atendem a estes requisitos:
+
+Xcode 16.2 ou versões mais recentes
+O app é direcionado ao iOS 15 ou mais recente ou ao macOS 12 ou mais recente.
+Confira recursos úteis
+Swift
+Kotlin
+Java
+Web
+Dart
+Unity
+Testar o app de início rápido
+Use o app de início rápido para testar o SDK rapidamente e conferir uma implementação completa de vários casos de uso. Ou use o app de início rápido se você não tiver um app próprio para plataformas da Apple. Para usar o app de início rápido, é necessário conectá-lo a um projeto do Firebase.
+
+Acessar o app de início rápido
+
+Assistir a um tutorial em vídeo
+
+Este vídeo demonstra como começar a usar o Firebase AI Logic criando um app de planejamento de refeições com tecnologia de IA que gera receitas com base em um comando de texto.
+
+Você também pode baixar e analisar a base de código do app no vídeo.
+
+Conferir a base de código do app do vídeo
+
+
+
+
+Etapa 1: configurar um projeto do Firebase e conectar seu app
+Faça login no console do Firebase e selecione seu projeto do Firebase.
+
+Ainda não tem um projeto do Firebase?
+
+No console Firebase, acesse a página Firebase AI Logic.
+
+Clique em Começar para iniciar um fluxo de trabalho guiado que ajuda a configurar as APIs necessárias e os recursos do projeto.
+
+Configure seu projeto para usar um provedor "Gemini API".
+
+Recomendamos começar usando o Gemini Developer API. A qualquer momento, você pode configurar o Vertex AI Gemini API (e o requisito de faturamento).
+
+Para o Gemini Developer API, o console vai ativar as APIs necessárias e criar uma chave de API Gemini no seu projeto.
+Não adicione essa chave de API Gemini à base de código do seu app. Saiba mais.
+
+Se solicitado no fluxo de trabalho do console, siga as instruções na tela para registrar seu app e conectá-lo ao Firebase.
+
+Continue para a próxima etapa deste guia para adicionar o SDK ao app.
+
+Observação: no console do Firebase, recomendamos que você configure o Firebase App Check. Se você estiver apenas testando o Gemini API, não precisa configurar o App Check imediatamente. No entanto, recomendamos que você faça isso assim que começar a desenvolver o app de verdade.
+Etapa 2: adicionar o SDK
+Com o projeto do Firebase configurado e o app conectado ao Firebase (consulte a etapa anterior), agora é possível adicionar o SDK Firebase AI Logic ao app.
+
+Swift
+Kotlin
+Java
+Web
+Dart
+Unity
+Use o Swift Package Manager para instalar e gerenciar as dependências do Firebase.
+
+Observação: acesse nosso guia de instalação para saber sobre as diferentes maneiras de adicionar SDKs do Firebase ao seu projeto da Apple.
+A biblioteca Firebase AI Logic oferece acesso às APIs para interagir com modelos Gemini e Imagen. A biblioteca está incluída como parte do SDK do Firebase para plataformas Apple (firebase-ios-sdk).
+
+Se você já usa o Firebase, verifique se o pacote dele é a versão 12.5.0 ou mais recente.
+
+No Xcode, com seu projeto do app aberto, navegue até File > Add Package Dependencies.
+
+Quando solicitado, adicione o repositório do SDK do Firebase para as plataformas Apple:
+
+
+https://github.com/firebase/firebase-ios-sdk
+Selecione a versão mais recente do SDK.
+
+Selecione a biblioteca FirebaseAILogic.
+
+Quando terminar, o Xcode vai começar a resolver e fazer o download das dependências em segundo plano automaticamente.
+
+Etapa 3: inicializar o serviço e criar uma instância de modelo
+
+Clique no seu provedor de Gemini API para conferir o conteúdo e o código específicos do provedor nesta página.
+
+API Gemini Developer API Gemini da Vertex AI
+Antes de enviar um comando para um modelo Gemini, inicialize o serviço para o provedor de API escolhido e crie uma instância GenerativeModel.
+
+Swift
+Kotlin
+Java
+Web
+Dart
+Unity
+
+
+import FirebaseAILogic
+
+// Initialize the Gemini Developer API backend service
+let ai = FirebaseAI.firebaseAI(backend: .googleAI())
+
+// Create a `GenerativeModel` instance with a model that supports your use case
+let model = ai.generativeModel(modelName: "gemini-3-flash-preview")
+
+Dependendo do recurso que você está usando, talvez não seja necessário criar uma instância GenerativeModel.
+
+Para acessar um modelo Imagen, crie uma instância ImagenModel.
+Para transmitir entrada e saída usando o Gemini Live API, crie uma instância LiveModel.
+Além disso, depois de concluir este guia de início rápido, aprenda a escolher um modelo para seu caso de uso e app.
+
+Importante: antes de ir para a produção, recomendamos implementar Firebase Remote Config para que você possa mudar remotamente o nome do modelo usado no seu app.
+Etapa 4: enviar uma solicitação de comando a um modelo
+Agora você está pronto para enviar uma solicitação de comando a um modelo Gemini.
+
+Você pode usar generateContent() para gerar texto com base em um comando que contém texto:
+
+Swift
+Kotlin
+Java
+Web
+Dart
+Unity
+
+
+import FirebaseAILogic
+
+// Initialize the Gemini Developer API backend service
+let ai = FirebaseAI.firebaseAI(backend: .googleAI())
+
+// Create a `GenerativeModel` instance with a model that supports your use case
+let model = ai.generativeModel(modelName: "gemini-3-flash-preview")
+
+// Provide a prompt that contains text
+let prompt = "Write a story about a magic backpack."
+
+// To generate text output, call generateContent with the text input
+let response = try await model.generateContent(prompt)
+print(response.text ?? "No text in response.")

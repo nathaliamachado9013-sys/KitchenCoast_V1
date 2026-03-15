@@ -16,6 +16,7 @@ import {
   Factory,
   ShoppingCart,
   DollarSign,
+  ReceiptText,
 } from 'lucide-react';
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/stock', label: 'Estoque', icon: Package },
   { path: '/production', label: 'Produção', icon: Factory },
   { path: '/sales', label: 'Vendas', icon: ShoppingCart },
+  { path: '/purchases', label: 'Compras', icon: ReceiptText },
   { path: '/operational-costs', label: 'Custos Fixos', icon: DollarSign },
   { path: '/reports', label: 'Relatórios', icon: BarChart3 },
   { path: '/settings', label: 'Configurações', icon: Settings },

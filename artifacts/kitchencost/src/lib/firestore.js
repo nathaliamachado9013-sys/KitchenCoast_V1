@@ -882,3 +882,138 @@ export const getMarginReport = async (restaurantId) => {
 
   return { recipes: withPrice, averageMargin, distribution };
 };
+
+// ====================== INVOICES / COMPRAS ======================
+
+export const createInvoice = async (restaurantId, data) => {
+  const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'invoices'), {
+    supplierId: data.supplierId || null,
+    supplierNameSnapshot: data.supplierNameSnapshot || '',
+    supplierNameDetected: data.supplierNameDetected || '',
+    invoiceNumber: data.invoiceNumber || '',
+    invoiceDate: data.invoiceDate || '',
+    currency: data.currency || 'BRL',
+    totalAmount: data.totalAmount || 0,
+    fileUrl: data.fileUrl || '',
+    fileType: data.fileType || '',
+    extractedJson: data.extractedJson || null,
+    confirmedJson: data.confirmedJson || null,
+    status: data.status || 'draft',
+    uploadedBy: data.uploadedBy || '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return { id: ref.id };
+};
+
+export const updateInvoice = async (restaurantId, invoiceId, data) => {
+  await updateDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const getInvoices = async (restaurantId) => {
+  const q = query(
+    collection(db, 'restaurants', restaurantId, 'invoices'),
+    orderBy('createdAt', 'desc'),
+    limit(100)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+export const getInvoicesBySupplier = async (restaurantId, supplierId) => {
+  const q = query(
+    collection(db, 'restaurants', restaurantId, 'invoices'),
+    where('supplierId', '==', supplierId),
+    orderBy('createdAt', 'desc')
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNumber, totalAmount) => {
+  if (!invoiceNumber) return null;
+  const q = query(
+    collection(db, 'restaurants', restaurantId, 'invoices'),
+    where('supplierId', '==', supplierId),
+    where('invoiceNumber', '==', invoiceNumber),
+    where('status', '!=', 'cancelled')
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const existing = snap.docs[0].data();
+  return {
+    id: snap.docs[0].id,
+    invoiceNumber: existing.invoiceNumber,
+    invoiceDate: existing.invoiceDate,
+    totalAmount: existing.totalAmount,
+  };
+};
+
+// Weighted average cost update when importing an invoice line to stock
+export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) => {
+  const { linkedItemId, itemType, confirmedName, quantity, unit, unitPrice, lineTotal, rawDescription } = line;
+
+  if (!linkedItemId || itemType === 'ignore' || itemType === 'unknown') return;
+
+  if (itemType === 'ingredient') {
+    const ingRef = doc(db, 'restaurants', restaurantId, 'ingredients', linkedItemId);
+    const snap = await getDoc(ingRef);
+    if (!snap.exists()) return;
+    const current = snap.data();
+
+    const currentQty = current.currentStock || 0;
+    const currentAvgCost = current.averageCost || current.costPerUnit || 0;
+    const currentTotalValue = currentQty * currentAvgCost;
+
+    const purchaseValue = lineTotal || quantity * unitPrice || 0;
+    const newTotalValue = currentTotalValue + purchaseValue;
+    const newTotalQty = currentQty + quantity;
+    const newAvgCost = newTotalQty > 0 ? newTotalValue / newTotalQty : unitPrice;
+
+    await updateDoc(ingRef, {
+      currentStock: newTotalQty,
+      costPerUnit: newAvgCost,
+      averageCost: newAvgCost,
+      updatedAt: serverTimestamp(),
+    });
+
+    await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+      type: 'in',
+      ingredientId: linkedItemId,
+      ingredientName: current.name,
+      quantity,
+      unit: unit || current.unit,
+      unitCost: unitPrice,
+      averageCostAfter: newAvgCost,
+      invoiceId,
+      notes: `Importado da nota fiscal — ${rawDescription || confirmedName || ''}`,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  if (itemType === 'resale_product') {
+    const prodRef = doc(db, 'restaurants', restaurantId, 'resale_products', linkedItemId);
+    const snap = await getDoc(prodRef);
+    if (!snap.exists()) return;
+    const current = snap.data();
+
+    const currentQty = current.stockQuantity || 0;
+    const currentAvgCost = current.averageCost || current.cost || 0;
+    const currentTotalValue = currentQty * currentAvgCost;
+
+    const purchaseValue = lineTotal || quantity * unitPrice || 0;
+    const newTotalValue = currentTotalValue + purchaseValue;
+    const newTotalQty = currentQty + quantity;
+    const newAvgCost = newTotalQty > 0 ? newTotalValue / newTotalQty : unitPrice;
+
+    await updateDoc(prodRef, {
+      stockQuantity: newTotalQty,
+      cost: newAvgCost,
+      averageCost: newAvgCost,
+      updatedAt: serverTimestamp(),
+    });
+  }
+};

@@ -1,13 +1,11 @@
-import React, { useState, useRef } from 'react';
-import ReCAPTCHA from 'react-google-recaptcha';
+import React, { useState, useCallback } from 'react';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ChefHat, Loader2, Mail } from 'lucide-react';
-
-const RECAPTCHA_SITE_KEY = '6Lcgb4ssAAAAAC4lOhF3eTlXFC5zrjuuIIXmhK3v';
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -20,58 +18,51 @@ const GoogleIcon = () => (
 
 const LoginPage = () => {
   const { loginWithEmail, loginWithGoogle, registerWithEmail } = useAuth();
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const { toast } = useToast();
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
-  const [recaptchaToken, setRecaptchaToken] = useState(null);
-  const recaptchaRef = useRef(null);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    if (!recaptchaToken) {
-      toast({ title: 'Verificação necessária', description: 'Por favor, confirme que você não é um robô.', variant: 'destructive' });
+    if (!executeRecaptcha) {
+      toast({ title: 'reCAPTCHA não carregado. Aguarde e tente novamente.', variant: 'destructive' });
       return;
     }
     setLoading(true);
     try {
+      await executeRecaptcha(mode === 'login' ? 'login' : 'register');
       if (mode === 'login') {
         await loginWithEmail(formData.email, formData.password);
       } else {
         await registerWithEmail(formData.email, formData.password, formData.name);
       }
     } catch (error) {
-      const msg = error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password'
-        ? 'Email ou senha incorretos'
-        : error.code === 'auth/email-already-in-use'
-        ? 'Este email já está em uso'
-        : error.code === 'auth/weak-password'
-        ? 'A senha deve ter pelo menos 6 caracteres'
-        : 'Erro ao entrar. Tente novamente.';
+      const msg =
+        error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential'
+          ? 'Email ou senha incorretos'
+          : error.code === 'auth/email-already-in-use'
+          ? 'Este email já está em uso'
+          : error.code === 'auth/weak-password'
+          ? 'A senha deve ter pelo menos 6 caracteres'
+          : 'Erro ao entrar. Tente novamente.';
       toast({ title: 'Erro', description: msg, variant: 'destructive' });
-      recaptchaRef.current?.reset();
-      setRecaptchaToken(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [executeRecaptcha, mode, formData, loginWithEmail, registerWithEmail, toast]);
 
   const handleGoogle = async () => {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
-    } catch (error) {
+    } catch {
       toast({ title: 'Erro', description: 'Erro ao entrar com Google. Tente novamente.', variant: 'destructive' });
     } finally {
       setGoogleLoading(false);
     }
-  };
-
-  const handleModeSwitch = () => {
-    setMode(mode === 'login' ? 'register' : 'login');
-    recaptchaRef.current?.reset();
-    setRecaptchaToken(null);
   };
 
   return (
@@ -122,6 +113,7 @@ const LoginPage = () => {
             <Input
               id="email"
               type="email"
+              autoComplete="email"
               placeholder="seu@email.com"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -133,28 +125,14 @@ const LoginPage = () => {
             <Input
               id="password"
               type="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               placeholder="••••••••"
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               required
             />
           </div>
-
-          <div className="flex justify-center">
-            <ReCAPTCHA
-              ref={recaptchaRef}
-              sitekey={RECAPTCHA_SITE_KEY}
-              onChange={(token) => setRecaptchaToken(token)}
-              onExpired={() => setRecaptchaToken(null)}
-              hl="pt-BR"
-            />
-          </div>
-
-          <Button
-            type="submit"
-            className="w-full h-11"
-            disabled={loading || googleLoading || !recaptchaToken}
-          >
+          <Button type="submit" className="w-full h-11" disabled={loading || googleLoading}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
             {mode === 'login' ? 'Entrar' : 'Criar conta'}
           </Button>
@@ -163,11 +141,15 @@ const LoginPage = () => {
         <p className="text-center text-sm text-muted-foreground mt-4">
           {mode === 'login' ? 'Não tem conta?' : 'Já tem conta?'}{' '}
           <button
-            onClick={handleModeSwitch}
+            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
             className="text-primary font-medium hover:underline"
           >
             {mode === 'login' ? 'Criar conta grátis' : 'Entrar'}
           </button>
+        </p>
+
+        <p className="text-center text-xs text-muted-foreground mt-4">
+          Protegido por reCAPTCHA v3
         </p>
       </div>
     </div>
