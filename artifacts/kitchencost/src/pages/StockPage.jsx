@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
-import { getIngredients, getResaleProducts, getStockMovements, createStockEntry, createStockExit, getInventoryValue } from '../lib/firestore';
+import { getIngredients, getResaleProducts, getStockMovements, createStockEntry, createStockExit, createResaleStockEntry, createResaleStockExit, getInventoryValue } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ const StockPage = () => {
   const [modalType, setModalType] = useState('entry');
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
-  const [formData, setFormData] = useState({ ingredientId: '', quantity: '', unitCost: '', reason: 'compra' });
+  const [formData, setFormData] = useState({ itemType: 'ingredient', itemId: '', quantity: '', unitCost: '', reason: 'compra' });
 
   useEffect(() => { if (restaurant?.restaurantId) loadData(); }, [restaurant]);
 
@@ -43,22 +43,32 @@ const StockPage = () => {
 
   const openModal = (type) => {
     setModalType(type);
-    setFormData({ ingredientId: '', quantity: '', unitCost: '', reason: type === 'entry' ? 'compra' : 'producao' });
+    setFormData({ itemType: 'ingredient', itemId: '', quantity: '', unitCost: '', reason: type === 'entry' ? 'compra' : 'producao' });
     setModalOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.ingredientId || !formData.quantity) { toast({ title: 'Erro', description: 'Preencha os campos obrigatórios', variant: 'destructive' }); return; }
+    if (!formData.itemId || !formData.quantity) { toast({ title: 'Erro', description: 'Preencha os campos obrigatórios', variant: 'destructive' }); return; }
     setSaving(true);
     try {
-      if (modalType === 'entry') {
-        await createStockEntry(restaurant.restaurantId, { ingredientId: formData.ingredientId, quantity: parseFloat(formData.quantity), unitCost: formData.unitCost ? parseFloat(formData.unitCost) : undefined, reason: formData.reason }, ingredients);
-        toast({ title: 'Entrada registrada!' });
+      const rid = restaurant.restaurantId;
+      const qty = parseFloat(formData.quantity);
+      const unitCost = formData.unitCost ? parseFloat(formData.unitCost) : undefined;
+      if (formData.itemType === 'ingredient') {
+        if (modalType === 'entry') {
+          await createStockEntry(rid, { ingredientId: formData.itemId, quantity: qty, unitCost, reason: formData.reason }, ingredients);
+        } else {
+          await createStockExit(rid, { ingredientId: formData.itemId, quantity: qty, reason: formData.reason }, ingredients);
+        }
       } else {
-        await createStockExit(restaurant.restaurantId, { ingredientId: formData.ingredientId, quantity: parseFloat(formData.quantity), reason: formData.reason }, ingredients);
-        toast({ title: 'Saída registrada!' });
+        if (modalType === 'entry') {
+          await createResaleStockEntry(rid, { productId: formData.itemId, quantity: qty, unitCost, reason: formData.reason }, resaleProducts);
+        } else {
+          await createResaleStockExit(rid, { productId: formData.itemId, quantity: qty, reason: formData.reason }, resaleProducts);
+        }
       }
+      toast({ title: modalType === 'entry' ? 'Entrada registrada!' : 'Saída registrada!' });
       setModalOpen(false); loadData();
     } catch (err) { toast({ title: 'Erro', description: err.message || 'Erro ao registrar', variant: 'destructive' }); }
     finally { setSaving(false); }
@@ -201,10 +211,25 @@ const StockPage = () => {
           <DialogHeader><DialogTitle>{modalType === 'entry' ? 'Registrar Entrada' : 'Registrar Saída'}</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
             <div>
-              <Label>Ingrediente *</Label>
-              <Select value={formData.ingredientId || 'none'} onValueChange={(v) => setFormData({ ...formData, ingredientId: v === 'none' ? '' : v })}>
+              <Label>Tipo de item *</Label>
+              <Select value={formData.itemType} onValueChange={(v) => setFormData({ ...formData, itemType: v, itemId: '' })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ingredient">Ingrediente</SelectItem>
+                  <SelectItem value="resale_product">Produto de Revenda</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>{formData.itemType === 'ingredient' ? 'Ingrediente' : 'Produto'} *</Label>
+              <Select value={formData.itemId || 'none'} onValueChange={(v) => setFormData({ ...formData, itemId: v === 'none' ? '' : v })}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>{ingredients.map(i => <SelectItem key={i.id} value={i.id}>{i.name} ({formatNumber(i.currentStock || 0)} {i.unit})</SelectItem>)}</SelectContent>
+                <SelectContent>
+                  {formData.itemType === 'ingredient'
+                    ? ingredients.map(i => <SelectItem key={i.id} value={i.id}>{i.name} ({formatNumber(i.currentStock || 0)} {i.unit})</SelectItem>)
+                    : resaleProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} ({formatNumber(p.stockQuantity || 0)} {p.unit || 'un'})</SelectItem>)
+                  }
+                </SelectContent>
               </Select>
             </div>
             <div><Label>Quantidade *</Label><Input type="number" step="0.01" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>

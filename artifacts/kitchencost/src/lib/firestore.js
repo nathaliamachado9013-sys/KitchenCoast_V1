@@ -172,20 +172,37 @@ export const getIngredients = async (restaurantId, filters = {}) => {
 
 export const createIngredient = async (restaurantId, data) => {
   const { restaurantId: _r, ...cleanData } = data;
+  const initialStock = cleanData.currentStock || 0;
+  const unitCost = cleanData.costPerUnit || 0;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'ingredients'), {
     name: cleanData.name,
     unit: cleanData.unit,
-    costPerUnit: cleanData.costPerUnit || 0,
+    costPerUnit: unitCost,
+    averageCost: unitCost,
     supplierId: cleanData.supplierId || null,
     notes: cleanData.notes || '',
     category: cleanData.category || '',
-    currentStock: cleanData.currentStock || 0,
+    currentStock: initialStock,
     minStock: cleanData.minStock || 0,
-    priceHistory: [{ price: cleanData.costPerUnit || 0, date: new Date().toISOString() }],
+    priceHistory: [{ price: unitCost, date: new Date().toISOString() }],
     active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  if (initialStock > 0) {
+    await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+      type: 'in',
+      ingredientId: ref.id,
+      ingredientName: cleanData.name,
+      quantity: initialStock,
+      unit: cleanData.unit,
+      unitCost,
+      averageCostAfter: unitCost,
+      referenceType: 'adjustment',
+      notes: 'Estoque inicial (ajuste de abertura)',
+      createdAt: serverTimestamp(),
+    });
+  }
   return { id: ref.id, ...cleanData };
 };
 
@@ -408,7 +425,12 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
   const ingredient = ingredients.find(i => i.id === data.ingredientId);
   if (!ingredient) throw new Error('Ingrediente não encontrado');
 
-  const newStock = Math.max(0, (ingredient.currentStock || 0) - data.quantity);
+  const currentQty = ingredient.currentStock || 0;
+  if (data.quantity > currentQty) {
+    throw new Error(`Estoque insuficiente. Disponível: ${currentQty} ${ingredient.unit}`);
+  }
+
+  const newStock = currentQty - data.quantity;
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', data.ingredientId), {
     currentStock: newStock,
@@ -422,6 +444,7 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
     quantity: data.quantity,
     unit: ingredient.unit,
     unitCost: ingredient.averageCost || ingredient.costPerUnit || 0,
+    referenceType: 'adjustment',
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -440,15 +463,35 @@ export const getProductions = async (restaurantId) => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 
-// FIX: Calculates cost from CURRENT ingredient prices at registration time
 export const registerProduction = async (restaurantId, data, recipes, ingredients) => {
   const recipe = recipes.find(r => r.id === data.recipeId);
   if (!recipe) throw new Error('Receita não encontrada');
 
   let ingredientsCost = 0;
   const yieldQty = recipe.yieldQuantity || 1;
-  const stockUpdates = [];
 
+  const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+
+  for (const ri of recipe.ingredients || []) {
+    const ing = ingredients.find(i => i.id === ri.ingredientId);
+    if (!ing) continue;
+    ingredientsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
+  }
+
+  const totalCost = (ingredientsCost / yieldQty + variableCostsTotal) * data.quantity;
+
+  const prodRef = await addDoc(collection(db, 'restaurants', restaurantId, 'productions'), {
+    recipeId: recipe.id,
+    recipeName: recipe.name,
+    quantity: data.quantity,
+    totalProductionCost: totalCost,
+    totalCost,
+    costPerUnit: totalCost / data.quantity,
+    notes: data.notes || '',
+    createdAt: serverTimestamp(),
+  });
+
+  const ops = [];
   for (const ri of recipe.ingredients || []) {
     const ing = ingredients.find(i => i.id === ri.ingredientId);
     if (!ing) continue;
@@ -457,35 +500,31 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
       qty = convertUnits(qty, ri.unit, ing.unit);
     }
-    ingredientsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
-
+    const unitCost = ing.averageCost || ing.costPerUnit || 0;
     const newStock = Math.max(0, (ing.currentStock || 0) - qty);
-    stockUpdates.push(
+
+    ops.push(
       updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ing.id), {
         currentStock: newStock,
         updatedAt: serverTimestamp(),
+      }),
+      addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+        type: 'out',
+        ingredientId: ing.id,
+        ingredientName: ing.name,
+        quantity: qty,
+        unit: ing.unit,
+        unitCost,
+        referenceType: 'production',
+        referenceId: prodRef.id,
+        notes: `Produção: ${recipe.name} (${data.quantity} porç${data.quantity > 1 ? 'ões' : 'ão'})`,
+        createdAt: serverTimestamp(),
       })
     );
   }
 
-  const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
-  const totalCost = (ingredientsCost / yieldQty + variableCostsTotal) * data.quantity;
-
-  const [ref] = await Promise.all([
-    addDoc(collection(db, 'restaurants', restaurantId, 'productions'), {
-      recipeId: recipe.id,
-      recipeName: recipe.name,
-      quantity: data.quantity,
-      totalProductionCost: totalCost,
-      totalCost,
-      costPerUnit: totalCost / data.quantity,
-      notes: data.notes || '',
-      createdAt: serverTimestamp(),
-    }),
-    ...stockUpdates,
-  ]);
-
-  return { id: ref.id, recipeName: recipe.name, totalCost };
+  await Promise.all(ops);
+  return { id: prodRef.id, recipeName: recipe.name, totalCost };
 };
 
 export const deleteProduction = async (restaurantId, productionId) => {
@@ -538,13 +577,16 @@ export const createResaleProduct = async (restaurantId, data) => {
   const salePrice = cleanData.salePrice || 0;
   const profitPerUnit = salePrice - cost;
   const margin = salePrice > 0 ? (profitPerUnit / salePrice) * 100 : 0;
+  const initialStock = cleanData.stockQuantity || cleanData.currentStock || 0;
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'resale_products'), {
     name: cleanData.name,
     cost,
+    averageCost: cost,
     salePrice,
     supplierId: cleanData.supplierId || null,
-    stockQuantity: cleanData.stockQuantity || cleanData.currentStock || 0,
+    stockQuantity: initialStock,
+    minStock: cleanData.minStock || 0,
     sku: cleanData.sku || '',
     notes: cleanData.notes || '',
     profitPerUnit,
@@ -553,6 +595,20 @@ export const createResaleProduct = async (restaurantId, data) => {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  if (initialStock > 0) {
+    await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+      type: 'in',
+      resaleProductId: ref.id,
+      ingredientName: cleanData.name,
+      quantity: initialStock,
+      unit: cleanData.unit || 'un',
+      unitCost: cost,
+      averageCostAfter: cost,
+      referenceType: 'adjustment',
+      notes: 'Estoque inicial (ajuste de abertura)',
+      createdAt: serverTimestamp(),
+    });
+  }
   return { id: ref.id, ...cleanData, profitPerUnit, margin };
 };
 
@@ -567,8 +623,78 @@ export const updateResaleProduct = async (restaurantId, productId, data) => {
     cost,
     profitPerUnit,
     margin,
+    minStock: cleanData.minStock || 0,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const createResaleStockEntry = async (restaurantId, data, resaleProducts) => {
+  const product = resaleProducts.find(p => p.id === data.productId);
+  if (!product) throw new Error('Produto de revenda não encontrado');
+
+  const currentQty = product.stockQuantity || 0;
+  const currentAvgCost = product.averageCost || product.cost || 0;
+  const newStock = currentQty + data.quantity;
+
+  let newCost;
+  if (data.unitCost !== undefined && data.unitCost !== null && data.unitCost > 0) {
+    const currentTotalValue = currentQty * currentAvgCost;
+    const incomingValue = data.quantity * data.unitCost;
+    newCost = newStock > 0 ? (currentTotalValue + incomingValue) / newStock : data.unitCost;
+  } else {
+    newCost = currentAvgCost;
+  }
+
+  await updateDoc(doc(db, 'restaurants', restaurantId, 'resale_products', data.productId), {
+    stockQuantity: newStock,
+    cost: newCost,
+    averageCost: newCost,
+    updatedAt: serverTimestamp(),
+  });
+
+  const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+    type: 'in',
+    resaleProductId: data.productId,
+    ingredientName: product.name,
+    quantity: data.quantity,
+    unit: product.unit || 'un',
+    unitCost: data.unitCost || currentAvgCost,
+    averageCostAfter: newCost,
+    referenceType: 'adjustment',
+    notes: data.reason || data.notes || '',
+    createdAt: serverTimestamp(),
+  });
+  return { id: ref.id };
+};
+
+export const createResaleStockExit = async (restaurantId, data, resaleProducts) => {
+  const product = resaleProducts.find(p => p.id === data.productId);
+  if (!product) throw new Error('Produto de revenda não encontrado');
+
+  const currentQty = product.stockQuantity || 0;
+  if (data.quantity > currentQty) {
+    throw new Error(`Estoque insuficiente. Disponível: ${currentQty} ${product.unit || 'un'}`);
+  }
+
+  const newStock = currentQty - data.quantity;
+
+  await updateDoc(doc(db, 'restaurants', restaurantId, 'resale_products', data.productId), {
+    stockQuantity: newStock,
+    updatedAt: serverTimestamp(),
+  });
+
+  const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
+    type: 'out',
+    resaleProductId: data.productId,
+    ingredientName: product.name,
+    quantity: data.quantity,
+    unit: product.unit || 'un',
+    unitCost: product.averageCost || product.cost || 0,
+    referenceType: 'adjustment',
+    notes: data.reason || data.notes || '',
+    createdAt: serverTimestamp(),
+  });
+  return { id: ref.id };
 };
 
 export const deleteResaleProduct = async (restaurantId, productId) => {
@@ -757,10 +883,21 @@ export const getDashboardSummary = async (restaurantId) => {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
 
-  const averageMargin =
-    recipes.length > 0
-      ? recipes.reduce((s, r) => s + (r.margin || 0), 0) / recipes.length
-      : 0;
+  const liveMargins = recipes.map(recipe => {
+    const yieldQty = recipe.yieldQuantity || 1;
+    let ingsCost = 0;
+    for (const ri of recipe.ingredients || []) {
+      const ing = ingredients.find(i => i.id === ri.ingredientId);
+      if (ing) ingsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
+    }
+    const variableTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+    const costPerPortion = ingsCost / yieldQty + variableTotal;
+    const sellingPrice = recipe.sellingPrice || 0;
+    return sellingPrice > 0 ? (sellingPrice - costPerPortion) / sellingPrice * 100 : 0;
+  });
+  const averageMargin = liveMargins.length > 0
+    ? liveMargins.reduce((s, m) => s + m, 0) / liveMargins.length
+    : 0;
 
   return {
     ingredientsCount: ingredients.length,
@@ -906,16 +1043,25 @@ export const getCostReport = async (restaurantId, period = 'month') => {
 };
 
 export const getMarginReport = async (restaurantId) => {
-  const recipes = await getRecipes(restaurantId);
+  const [recipes, ingredients] = await Promise.all([
+    getRecipes(restaurantId),
+    getIngredients(restaurantId),
+  ]);
 
-  const withPrice = recipes.filter(r => r.sellingPrice > 0).map(r => ({
-    name: r.name,
-    category: r.category || '',
-    cost: r.costPerPortion || r.totalDishCost || 0,
-    sellingPrice: r.sellingPrice || 0,
-    profit: (r.sellingPrice || 0) - (r.costPerPortion || r.totalDishCost || 0),
-    margin: r.margin || 0,
-  }));
+  const withPrice = recipes.filter(r => r.sellingPrice > 0).map(r => {
+    const yieldQty = r.yieldQuantity || 1;
+    let ingsCost = 0;
+    for (const ri of r.ingredients || []) {
+      const ing = ingredients.find(i => i.id === ri.ingredientId);
+      if (ing) ingsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
+    }
+    const variableTotal = (r.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+    const liveCost = ingsCost / yieldQty + variableTotal;
+    const sellingPrice = r.sellingPrice || 0;
+    const profit = sellingPrice - liveCost;
+    const margin = sellingPrice > 0 ? (profit / sellingPrice) * 100 : 0;
+    return { name: r.name, category: r.category || '', cost: liveCost, sellingPrice, profit, margin };
+  });
 
   const averageMargin = withPrice.length > 0
     ? withPrice.reduce((s, r) => s + r.margin, 0) / withPrice.length
