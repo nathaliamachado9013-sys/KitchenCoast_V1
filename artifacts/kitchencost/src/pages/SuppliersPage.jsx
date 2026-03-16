@@ -88,7 +88,7 @@ const SuppliersPage = () => {
         if (!sid) continue;
         if (!summary[sid]) summary[sid] = { totalSpent: 0, totalInvoices: 0, lastDate: null };
         summary[sid].totalInvoices += 1;
-        if (inv.status === 'imported' || inv.status === 'with_divergence') {
+        if (inv.status === 'imported') {
           summary[sid].totalSpent += inv.totalAmount || 0;
         }
         const invDate = inv.invoiceDate || inv.createdAt;

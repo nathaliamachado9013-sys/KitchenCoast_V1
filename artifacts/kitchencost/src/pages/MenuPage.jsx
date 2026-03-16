@@ -81,7 +81,7 @@ const MenuPage = () => {
       return recipe?.costPerPortion || item.cost || 0;
     } else {
       const product = resaleProducts.find(p => p.id === item.productId);
-      return product?.purchasePrice || item.cost || 0;
+      return product?.averageCost || product?.cost || item.cost || 0;
     }
   };
 
@@ -96,7 +96,7 @@ const MenuPage = () => {
         cost = recipe?.costPerPortion || 0;
       } else {
         const product = resaleProducts.find(p => p.id === formData.productId);
-        cost = product?.purchasePrice || 0;
+        cost = product?.averageCost || product?.cost || 0;
       }
       const data = { name: formData.name, description: formData.description, itemType: formData.itemType, recipeId: formData.recipeId || null, productId: formData.productId || null, salePrice: parseFloat(formData.salePrice) || 0, cost, category: formData.category || '', isAvailable: formData.isAvailable };
       if (editingItem) { await updateMenuItem(restaurant.restaurantId, editingItem.id, data); toast({ title: 'Item atualizado!' }); }

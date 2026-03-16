@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
 import { getRecipes, createRecipe, updateRecipe, deleteRecipe, getIngredients, getOperationalCosts } from '../lib/firestore';
-import { formatCurrency, formatNumber, RECIPE_CATEGORIES, MARGIN_RECOMMENDATIONS, UNITS } from '../lib/utils';
+import { formatCurrency, formatNumber, RECIPE_CATEGORIES, MARGIN_RECOMMENDATIONS, UNITS, canConvert, convertUnits } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -73,6 +73,30 @@ const RecipesPage = () => {
     const rec = MARGIN_RECOMMENDATIONS[category] || MARGIN_RECOMMENDATIONS['Outros'];
     return { totalDishCost, ingsCost: ingsCost / yieldQty, variableTotal, sellingPrice, profitPerUnit, actualMargin, suggestedPrice, recommendedRange: rec.label, minRec: rec.min * 100, maxRec: rec.max * 100 };
   }, [formData, ingredients, opCostPerDish]);
+
+  const liveRecipeCosts = useMemo(() => {
+    const map = {};
+    for (const recipe of recipes) {
+      const yieldQty = recipe.yieldQuantity || 1;
+      let ingsCost = 0;
+      for (const ri of recipe.ingredients || []) {
+        const ing = ingredients.find(i => i.id === ri.ingredientId);
+        if (!ing) continue;
+        let qty = ri.quantity || 0;
+        if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
+          qty = convertUnits(qty, ri.unit, ing.unit);
+        }
+        ingsCost += qty * (ing.averageCost || ing.costPerUnit || 0);
+      }
+      const variableTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+      const costPerPortion = ingsCost / yieldQty + variableTotal + opCostPerDish;
+      const sellingPrice = recipe.sellingPrice || 0;
+      const profitPerUnit = sellingPrice - costPerPortion;
+      const margin = sellingPrice > 0 ? (profitPerUnit / sellingPrice) * 100 : 0;
+      map[recipe.id] = { costPerPortion, profitPerUnit, margin };
+    }
+    return map;
+  }, [recipes, ingredients, opCostPerDish]);
 
   const filtered = recipes.filter(r => {
     const matchSearch = !search || r.name?.toLowerCase().includes(search.toLowerCase());
@@ -163,12 +187,20 @@ const RecipesPage = () => {
                   <Button variant="ghost" size="icon" className="w-7 h-7 text-destructive" onClick={() => handleDelete(recipe)}><Trash2 className="w-3.5 h-3.5" /></Button>
                 </div>
               </div>
-              <div className="space-y-1 text-sm mt-3">
-                <div className="flex justify-between"><span className="text-muted-foreground">Custo/porção</span><span className="font-medium">{formatCurrency(recipe.costPerPortion || 0, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Preço de venda</span><span className="font-medium">{formatCurrency(recipe.sellingPrice || 0, currency)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Margem</span><span className={`font-semibold ${marginColor(recipe.margin || 0)}`}>{formatNumber(recipe.margin || 0, 1)}%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Lucro/porção</span><span className="font-medium text-emerald-600">{formatCurrency(recipe.profitPerUnit || 0, currency)}</span></div>
-              </div>
+              {(() => {
+                const live = liveRecipeCosts[recipe.id] || {};
+                const liveCost = live.costPerPortion ?? recipe.costPerPortion ?? 0;
+                const liveProfit = live.profitPerUnit ?? recipe.profitPerUnit ?? 0;
+                const liveMargin = live.margin ?? recipe.margin ?? 0;
+                return (
+                  <div className="space-y-1 text-sm mt-3">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Custo/porção</span><span className="font-medium">{formatCurrency(liveCost, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Preço de venda</span><span className="font-medium">{formatCurrency(recipe.sellingPrice || 0, currency)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Margem</span><span className={`font-semibold ${marginColor(liveMargin)}`}>{formatNumber(liveMargin, 1)}%</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Lucro/porção</span><span className="font-medium text-emerald-600">{formatCurrency(liveProfit, currency)}</span></div>
+                  </div>
+                );
+              })()}
               {recipe.ingredients?.length > 0 && <p className="text-xs text-muted-foreground mt-2">{recipe.ingredients.length} ingrediente(s)</p>}
             </div>
           ))}
@@ -237,7 +269,7 @@ const RecipesPage = () => {
                   <div className="space-y-2">
                     {formData.ingredients.map((ri, idx) => {
                       const ing = ingredients.find(i => i.id === ri.ingredientId);
-                      const cost = (ri.quantity || 0) * (ing?.costPerUnit || 0);
+                      const cost = (ri.quantity || 0) * (ing?.averageCost || ing?.costPerUnit || 0);
                       return (
                         <div key={idx} className="flex items-center justify-between bg-muted/20 rounded-lg px-3 py-2">
                           <span className="font-medium text-sm">{ri.ingredientName || ing?.name}</span>

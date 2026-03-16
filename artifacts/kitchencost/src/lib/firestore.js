@@ -654,7 +654,32 @@ export const createSale = async (restaurantId, data, menuItems) => {
   if (!item) throw new Error('Item não encontrado no cardápio');
 
   const salePrice = data.salePrice !== undefined ? data.salePrice : (item.salePrice || 0);
-  const cost = item.cost || item.costPerPortion || 0;
+
+  let cost = item.cost || item.costPerPortion || 0;
+
+  if (item.itemType === 'recipe' && item.recipeId) {
+    const recipeSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'recipes', item.recipeId));
+    if (recipeSnap.exists()) {
+      const recipe = recipeSnap.data();
+      const ingsSnap = await getDocs(collection(db, 'restaurants', restaurantId, 'ingredients'));
+      const ingredients = ingsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const yieldQty = recipe.yieldQuantity || 1;
+      let ingsCost = 0;
+      for (const ri of recipe.ingredients || []) {
+        const ing = ingredients.find(i => i.id === ri.ingredientId);
+        if (ing) ingsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
+      }
+      const variableTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+      cost = ingsCost / yieldQty + variableTotal;
+    }
+  } else if (item.itemType === 'resale_product' && item.productId) {
+    const prodSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'resale_products', item.productId));
+    if (prodSnap.exists()) {
+      const prod = prodSnap.data();
+      cost = prod.averageCost || prod.cost || 0;
+    }
+  }
+
   const profit = (salePrice - cost) * data.quantitySold;
   const revenue = salePrice * data.quantitySold;
 
