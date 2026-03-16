@@ -19,6 +19,7 @@ import {
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';
 import { uploadInvoiceFile, validateInvoiceFile, getCloudinaryThumbnailUrl } from '../lib/invoiceStorage';
+import { formatCurrency } from '../lib/utils';
 
 const ACCEPTED_TYPES = 'image/*,application/pdf';
 
@@ -45,13 +46,8 @@ const STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-const formatCurrency = (val, currency = 'BRL') => {
-  const n = parseFloat(val) || 0;
-  return n.toLocaleString('pt-BR', { style: 'currency', currency });
-};
-
 const PurchasesPage = () => {
-  const { restaurant, user } = useAuth();
+  const { restaurant, user, currency } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef(null);
 
@@ -410,9 +406,9 @@ const PurchasesPage = () => {
             </p>
           )}
           <div className="mt-3 text-sm space-y-1 bg-muted/40 rounded-xl p-4 text-left w-full">
-            <div className="flex justify-between"><span className="text-muted-foreground">Total da nota:</span><span className="font-medium">{formatCurrency(savedResult.totalAmount)}</span></div>
-            {savedResult.stockImportedValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor importado p/ estoque:</span><span className="font-medium text-emerald-700">{formatCurrency(savedResult.stockImportedValue)}</span></div>}
-            {savedResult.ignoredValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor ignorado / taxas:</span><span className="text-muted-foreground">{formatCurrency(savedResult.ignoredValue)}</span></div>}
+            <div className="flex justify-between"><span className="text-muted-foreground">Total da nota:</span><span className="font-medium">{formatCurrency(savedResult.totalAmount, currency)}</span></div>
+            {savedResult.stockImportedValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor importado p/ estoque:</span><span className="font-medium text-emerald-700">{formatCurrency(savedResult.stockImportedValue, currency)}</span></div>}
+            {savedResult.ignoredValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor ignorado / taxas:</span><span className="text-muted-foreground">{formatCurrency(savedResult.ignoredValue, currency)}</span></div>}
           </div>
 
           {savedResult.fileUrl && (
@@ -507,8 +503,8 @@ const PurchasesPage = () => {
                 <p className="font-medium text-sm">Possível nota duplicada detectada</p>
                 <p className="text-sm mt-0.5">
                   {duplicateWarning.matchType === 'number'
-                    ? <>Já existe a Nota Nº <strong>{duplicateWarning.invoiceNumber}</strong> — {formatCurrency(duplicateWarning.totalAmount)} para este fornecedor (mesmo número de nota).</>
-                    : <>Já existe uma nota com a mesma data e valor total ({formatCurrency(duplicateWarning.totalAmount)}) para este fornecedor.</>
+                    ? <>Já existe a Nota Nº <strong>{duplicateWarning.invoiceNumber}</strong> — {formatCurrency(duplicateWarning.totalAmount, currency)} para este fornecedor (mesmo número de nota).</>
+                    : <>Já existe uma nota com a mesma data e valor total ({formatCurrency(duplicateWarning.totalAmount, currency)}) para este fornecedor.</>
                   }
                   {' '}Verifique se é uma nota diferente antes de continuar.
                 </p>

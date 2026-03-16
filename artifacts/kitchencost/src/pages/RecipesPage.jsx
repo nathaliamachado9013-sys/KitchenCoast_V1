@@ -60,7 +60,7 @@ const RecipesPage = () => {
     for (const ri of formData.ingredients) {
       const ing = ingredients.find(i => i.id === ri.ingredientId);
       if (!ing) continue;
-      ingsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
+      ingsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
     }
     const variableTotal = (formData.variableCosts || []).reduce((s, v) => s + (parseFloat(v.value) || 0), 0);
     const totalDishCost = ingsCost / yieldQty + variableTotal + opCostPerDish;

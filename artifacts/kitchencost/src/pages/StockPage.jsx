@@ -187,7 +187,7 @@ const StockPage = () => {
                     </td>
                     <td className="px-4 py-3 font-medium">{m.ingredientName}</td>
                     <td className="px-4 py-3">{formatNumber(m.quantity)} {m.unit}</td>
-                    <td className="px-4 py-3 text-muted-foreground capitalize">{m.reason}</td>
+                    <td className="px-4 py-3 text-muted-foreground capitalize">{m.notes || m.reason || '—'}</td>
                   </tr>
                 ))}
               </tbody>

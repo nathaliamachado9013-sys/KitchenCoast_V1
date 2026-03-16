@@ -244,7 +244,7 @@ const calculateRecipeCost = (recipe, ingredients, operationalCostPerDish = 0) =>
     if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
       qty = convertUnits(qty, ri.unit, ing.unit);
     }
-    ingredientsCost += qty * (ing.costPerUnit || 0);
+    ingredientsCost += qty * (ing.averageCost || ing.costPerUnit || 0);
   }
 
   const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
@@ -421,7 +421,7 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
-    unitCost: ingredient.costPerUnit,
+    unitCost: ingredient.averageCost || ingredient.costPerUnit || 0,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -457,7 +457,7 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
       qty = convertUnits(qty, ri.unit, ing.unit);
     }
-    ingredientsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
+    ingredientsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
 
     const newStock = Math.max(0, (ing.currentStock || 0) - qty);
     stockUpdates.push(
@@ -706,8 +706,9 @@ export const getSalesSummary = async (restaurantId, period = 'today') => {
 // ====================== DASHBOARD ======================
 
 export const getDashboardSummary = async (restaurantId) => {
-  const [ingredients, recipes, suppliers, sales, productions] = await Promise.all([
+  const [ingredients, resaleProducts, recipes, suppliers, sales, productions] = await Promise.all([
     getIngredients(restaurantId),
+    getResaleProducts(restaurantId),
     getRecipes(restaurantId),
     getSuppliers(restaurantId),
     getSales(restaurantId),
@@ -715,7 +716,9 @@ export const getDashboardSummary = async (restaurantId) => {
   ]);
 
   const lowStockAlerts = ingredients.filter(i => (i.currentStock || 0) <= (i.minStock || 0));
-  const inventoryValue = ingredients.reduce((s, i) => s + (i.currentStock || 0) * (i.costPerUnit || 0), 0);
+  const inventoryValue =
+    ingredients.reduce((s, i) => s + (i.currentStock || 0) * (i.averageCost || i.costPerUnit || 0), 0) +
+    resaleProducts.reduce((s, p) => s + (p.stockQuantity || p.currentStock || 0) * (p.averageCost || p.cost || 0), 0);
 
   const now = new Date();
   const todayProductions = productions.filter(p => {
@@ -961,13 +964,14 @@ export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNum
     const q = query(
       collection(db, 'restaurants', restaurantId, 'invoices'),
       where('supplierId', '==', supplierId),
-      where('invoiceNumber', '==', invoiceNumber),
-      where('status', '!=', 'cancelled')
+      where('invoiceNumber', '==', invoiceNumber)
     );
     const snap = await getDocs(q);
-    if (!snap.empty) {
-      const existing = snap.docs[0].data();
-      return { id: snap.docs[0].id, invoiceNumber: existing.invoiceNumber, invoiceDate: existing.invoiceDate, totalAmount: existing.totalAmount, matchType: 'number' };
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.status !== 'cancelled') {
+        return { id: d.id, invoiceNumber: data.invoiceNumber, invoiceDate: data.invoiceDate, totalAmount: data.totalAmount, matchType: 'number' };
+      }
     }
   }
 
@@ -975,13 +979,12 @@ export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNum
     const q = query(
       collection(db, 'restaurants', restaurantId, 'invoices'),
       where('supplierId', '==', supplierId),
-      where('invoiceDate', '==', invoiceDate),
-      where('status', '!=', 'cancelled')
+      where('invoiceDate', '==', invoiceDate)
     );
     const snap = await getDocs(q);
     for (const d of snap.docs) {
       const data = d.data();
-      if (Math.abs((data.totalAmount || 0) - totalAmount) < 0.02) {
+      if (data.status !== 'cancelled' && Math.abs((data.totalAmount || 0) - totalAmount) < 0.02) {
         return { id: d.id, invoiceNumber: data.invoiceNumber, invoiceDate: data.invoiceDate, totalAmount: data.totalAmount, matchType: 'date_amount' };
       }
     }
