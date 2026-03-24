@@ -1,0 +1,323 @@
+You are a senior full-stack engineer and product reliability specialist.
+
+Your task is to fix the KitchenCost SaaS core logic using the operational model below.
+
+Do NOT redesign the UI.
+Do NOT change the tech stack.
+Focus only on correctness, consistency, and data integrity.
+
+==================================================
+CORE SYSTEM MODEL (SOURCE OF TRUTH)
+==================================================
+
+The system must follow this chain:
+
+Supplier → Invoice → Item → Stock → Cost → Recipe → Price → Sale → Profit
+
+If any step fails, the system becomes unreliable.
+
+==================================================
+1. INVOICE IMPORT (MUST BE ATOMIC AND IDENTICAL FOR IMAGE AND PDF)
+==================================================
+
+Current problems:
+- PDF and image behave differently
+- stock is not always updated
+- items may be created without stock
+- invoice may remain stuck in "review"
+
+Fix:
+
+Create ONE unified import flow for both image and PDF:
+
+Steps:
+1. upload file (Cloudinary)
+2. extract lines (AI optional)
+3. normalize all lines into a single structure
+4. user reviews lines
+5. classify each line:
+   - ingredient
+   - resale_product
+   - ignored
+6. link to existing item OR create new item
+7. normalize units to one of:
+   g, ml, L, Kg, uni
+8. auto-calculate missing values:
+   - if quantity + total → unit_price
+   - if quantity + unit_price → total
+9. detect duplicate invoice using:
+   supplier_id + invoice_number + total
+10. run atomic import:
+   - create invoice
+   - create purchase lines
+   - create stock movements (type = "in")
+   - update stock
+   - update weighted average cost
+   - update supplier totals
+   - finalize invoice status
+
+Atomic rule:
+- if any step fails → NOTHING is saved
+
+Example:
+Invoice total: 600€
+Imported items: 480€
+Ignored: 120€
+
+System must store:
+- total_invoice_value = 600
+- imported_value = 480
+- ignored_value = 120
+- discrepancy = 120
+
+Never:
+- create item without stock update
+- update stock without invoice
+- allow PDF flow to skip stock logic
+
+==================================================
+2. ITEM CREATION FROM INVOICE (INHERITED FIELDS)
+==================================================
+
+When user selects "create new item":
+
+Must create a COMPLETE item with:
+- name
+- tenant_id
+- supplier_id (from invoice)
+- normalized unit
+- initial cost
+- current stock (after import)
+- created_from = "invoice"
+
+Example:
+Line: Salsa 4 × 30g = 120g total 5.98€
+
+Create:
+- name: Salsa
+- unit: g
+- supplier: Makro
+- stock: 120
+- cost_per_g: 0.049€
+
+Never:
+- create item without supplier
+- create item with stock = 0 when it was just purchased
+- mark item as critical incorrectly
+
+==================================================
+3. STOCK SYSTEM (SINGLE SOURCE OF TRUTH)
+==================================================
+
+Stock must be controlled ONLY by stock_movements.
+
+Movement structure:
+- item_id
+- item_type (ingredient or resale)
+- movement_type ("in" or "out")
+- quantity
+- unit
+- unit_cost
+- total_value
+- reference_type
+- reference_id
+- tenant_id
+- timestamp
+
+Rules:
+- invoice = movement_type "in"
+- production = "out"
+- sale (resale) = "out"
+
+Stock calculation:
+current_stock = SUM(in) - SUM(out)
+
+Inventory value:
+inventory_value = SUM(current_stock × average_cost)
+
+Never:
+- update stock directly without movement
+- treat invoice as "out"
+- calculate stock from invoice totals
+
+==================================================
+4. MANUAL STOCK ENTRY (REQUIRED)
+==================================================
+
+Must exist alongside AI import.
+
+Flow:
+- user selects item OR creates inline
+- inputs quantity and cost
+- system calculates missing values
+- creates stock movement (type "in")
+- updates stock and average cost
+
+Fix UX:
+- dropdown must scroll
+- allow "create new item" inside modal
+- auto-select new item after creation
+
+==================================================
+5. UNIT NORMALIZATION (CRITICAL)
+==================================================
+
+Allowed units:
+g, ml, L, Kg, uni
+
+All incoming data must be converted.
+
+Examples:
+- 15 dozen eggs → 180 uni
+- 2 packs of 12 buns → 24 uni
+- 3 bags of 2.5kg → 7.5 Kg
+- 4 × 30g herbs → 120 g
+
+Never:
+- store pack/box as final unit
+- mix units in cost calculation
+
+==================================================
+6. WEIGHTED AVERAGE COST
+==================================================
+
+On each stock entry:
+
+new_total_value = old_value + new_entry_value
+new_quantity = old_quantity + new_entry_quantity
+new_average_cost = new_total_value / new_quantity
+
+If stock becomes zero:
+- next entry defines new cost baseline
+
+==================================================
+7. RECIPE (FICHA TÉCNICA)
+==================================================
+
+Must use dynamic cost.
+
+Input:
+- ingredients
+- quantities
+- margin
+
+Process:
+- convert units
+- calculate cost per ingredient
+- sum total cost
+- calculate ideal price
+
+Formula:
+price = cost / (1 - margin)
+
+Example:
+cost = 4.20€
+margin = 70%
+price = 14€
+
+Never:
+- store fixed cost permanently
+- ignore unit conversion
+
+==================================================
+8. MENU (CARDÁPIO)
+==================================================
+
+Must separate:
+
+- ideal_price (from recipe)
+- actual_price (user-defined)
+
+UI must:
+- show ideal price
+- show actual price
+- provide button:
+  "Use suggested price"
+
+Must calculate:
+- profit per unit
+- real margin
+
+Never:
+- overwrite ideal price
+- calculate profit using outdated cost
+
+==================================================
+9. SALES
+==================================================
+
+On sale:
+
+Must freeze:
+- cost_at_time_of_sale
+- price_at_time_of_sale
+- profit_at_time_of_sale
+
+Never recalculate past sales.
+
+==================================================
+10. SUPPLIERS
+==================================================
+
+Supplier must connect:
+
+- invoices
+- total spent
+- invoice history
+
+Rules:
+- total_spent = sum of invoice totals
+- supplier page must match invoice data
+
+Never:
+- show mismatched totals
+- show invoices not linked to supplier
+
+==================================================
+11. CLOUDINARY FILE HANDLING
+==================================================
+
+Files must be stored with tenant scope:
+
+kitchencost/{tenant_id}/invoices/{invoice_id}
+
+On account deletion:
+- delete ALL files using Cloudinary API (public_id)
+
+Never:
+- delete only Firestore references
+- leave orphan files
+
+==================================================
+12. ERROR HANDLING
+==================================================
+
+Invoice states:
+- pending
+- processing
+- completed
+- failed
+
+If failure:
+- do not partially save data
+- allow retry
+- show user-friendly message
+
+Never:
+- leave invoice stuck in "review"
+- show raw technical errors to user
+
+==================================================
+FINAL REQUIREMENT
+==================================================
+
+After implementation:
+
+- invoice import is reliable for both image and PDF
+- items always enter stock correctly
+- stock and inventory values are trustworthy
+- recipes reflect real cost
+- menu shows correct suggested price
+- supplier totals match invoices
+- account deletion removes ALL data including files
+- system never enters inconsistent partial state

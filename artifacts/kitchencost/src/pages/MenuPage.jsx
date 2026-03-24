@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Pencil, Trash2, UtensilsCrossed, TrendingUp, Search } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, UtensilsCrossed, TrendingUp, Search, Zap } from 'lucide-react';
 
 const MenuPage = () => {
   const { restaurant, currency } = useAuth();
@@ -52,9 +52,17 @@ const MenuPage = () => {
   });
 
   const openModal = (item = null) => {
-    setEditingItem(item);
-    if (item) {
-      setFormData({ name: item.name, description: item.description || '', itemType: item.itemType || 'recipe', recipeId: item.recipeId || '', productId: item.productId || '', salePrice: item.salePrice?.toString() || '', category: item.category || '', isAvailable: item.isAvailable !== false });
+    const useSuggested = item?._useSuggested;
+    const cleanItem = item ? { ...item } : null;
+    if (cleanItem) delete cleanItem._useSuggested;
+    setEditingItem(cleanItem);
+    if (cleanItem) {
+      let salePrice = cleanItem.salePrice?.toString() || '';
+      if (useSuggested && cleanItem.itemType === 'recipe' && cleanItem.recipeId) {
+        const recipe = recipes.find(r => r.id === cleanItem.recipeId);
+        if (recipe?.sellingPrice) salePrice = recipe.sellingPrice.toString();
+      }
+      setFormData({ name: cleanItem.name, description: cleanItem.description || '', itemType: cleanItem.itemType || 'recipe', recipeId: cleanItem.recipeId || '', productId: cleanItem.productId || '', salePrice, category: cleanItem.category || '', isAvailable: cleanItem.isAvailable !== false });
     } else {
       setFormData(emptyForm);
     }
@@ -83,6 +91,15 @@ const MenuPage = () => {
       const product = resaleProducts.find(p => p.id === item.productId);
       return product?.averageCost || product?.cost || item.cost || 0;
     }
+  };
+
+  // Ideal price = sellingPrice set in recipe (calculated from desiredMargin)
+  const getIdealPrice = (item) => {
+    if (item.itemType === 'recipe') {
+      const recipe = recipes.find(r => r.id === item.recipeId);
+      return recipe?.sellingPrice || null;
+    }
+    return null;
   };
 
   const handleSubmit = async (e) => {
@@ -174,7 +191,8 @@ const MenuPage = () => {
                       <th className="px-4 py-3 font-semibold">Item</th>
                       <th className="px-4 py-3 font-semibold">Tipo</th>
                       <th className="px-4 py-3 font-semibold">Custo</th>
-                      <th className="px-4 py-3 font-semibold">Preço de venda</th>
+                      <th className="px-4 py-3 font-semibold">Preço Ideal</th>
+                      <th className="px-4 py-3 font-semibold">Preço Praticado</th>
                       <th className="px-4 py-3 font-semibold">Margem</th>
                       <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3"></th>
@@ -183,7 +201,9 @@ const MenuPage = () => {
                   <tbody>
                     {items.map(item => {
                       const cost = getItemCost(item);
+                      const idealPrice = getIdealPrice(item);
                       const margin = getMargin(item);
+                      const priceMatchesIdeal = idealPrice !== null && Math.abs((item.salePrice || 0) - idealPrice) < 0.005;
                       return (
                         <tr key={item.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                           <td className="px-4 py-3">
@@ -192,7 +212,27 @@ const MenuPage = () => {
                           </td>
                           <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${item.itemType === 'recipe' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700'}`}>{item.itemType === 'recipe' ? 'Receita' : 'Revenda'}</span></td>
                           <td className="px-4 py-3 text-muted-foreground">{formatCurrency(cost, currency)}</td>
-                          <td className="px-4 py-3 font-medium">{formatCurrency(item.salePrice || 0, currency)}</td>
+                          <td className="px-4 py-3">
+                            {idealPrice !== null ? (
+                              <span className="text-blue-600 font-medium">{formatCurrency(idealPrice, currency)}</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{formatCurrency(item.salePrice || 0, currency)}</span>
+                              {idealPrice !== null && !priceMatchesIdeal && (
+                                <button
+                                  title="Usar preço sugerido da ficha técnica"
+                                  className="text-blue-500 hover:text-blue-700 transition-colors"
+                                  onClick={() => openModal({ ...item, _useSuggested: true })}
+                                >
+                                  <Zap className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3"><span className={`font-semibold ${marginColor(margin)}`}>{formatNumber(margin, 1)}%</span></td>
                           <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${item.isAvailable !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{item.isAvailable !== false ? 'Disponível' : 'Indisponível'}</span></td>
                           <td className="px-4 py-3">
@@ -246,8 +286,25 @@ const MenuPage = () => {
             )}
             <div><Label>Nome no cardápio *</Label><Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div>
             <div><Label>Descrição</Label><Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
+            {formData.itemType === 'recipe' && formData.recipeId && (() => {
+              const recipe = recipes.find(r => r.id === formData.recipeId);
+              const idealPrice = recipe?.sellingPrice;
+              if (!idealPrice) return null;
+              return (
+                <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-sm">
+                  <span className="text-blue-700">Preço ideal da ficha: <strong>{formatCurrency(idealPrice, currency)}</strong></span>
+                  <button
+                    type="button"
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                    onClick={() => setFormData(prev => ({ ...prev, salePrice: idealPrice.toString() }))}
+                  >
+                    <Zap className="w-3 h-3" />Usar preço sugerido
+                  </button>
+                </div>
+              );
+            })()}
             <div className="form-grid">
-              <div><Label>Preço de venda</Label><Input type="number" step="0.01" value={formData.salePrice} onChange={(e) => setFormData({ ...formData, salePrice: e.target.value })} /></div>
+              <div><Label>Preço praticado</Label><Input type="number" step="0.01" value={formData.salePrice} onChange={(e) => setFormData({ ...formData, salePrice: e.target.value })} /></div>
               <div>
                 <Label>Categoria</Label>
                 <Select value={formData.category || 'none'} onValueChange={(v) => setFormData({ ...formData, category: v === 'none' ? '' : v })}>

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import {
   Upload, FileText, Loader2, CheckCircle2, AlertTriangle,
@@ -19,7 +20,7 @@ import {
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';
 import { uploadInvoiceFile, validateInvoiceFile, getCloudinaryThumbnailUrl } from '../lib/invoiceStorage';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, normalizeUnit, ALLOWED_UNITS } from '../lib/utils';
 
 const ACCEPTED_TYPES = 'image/*,application/pdf';
 
@@ -161,18 +162,23 @@ const PurchasesPage = () => {
         totalAmount: result.total_amount != null ? String(result.total_amount) : '',
       });
 
-      setReviewLines((result.items || []).map((item, idx) => ({
-        _id: idx,
-        rawDescription: item.raw_description || '',
-        suggestedName: item.suggested_name || item.raw_description || '',
-        quantity: item.quantity != null ? String(item.quantity) : '',
-        unit: item.unit || '',
-        unitPrice: item.unit_price != null ? String(item.unit_price) : '',
-        lineTotal: item.line_total != null ? String(item.line_total) : '',
-        itemType: item.suggested_item_type || 'unknown',
-        linkedItemId: null,
-        createNew: false,
-      })));
+      setReviewLines((result.items || []).map((item, idx) => {
+        // Normalize unit to official system units (g, ml, L, Kg, uni)
+        const rawUnit = item.unit || '';
+        const normalizedUnit = normalizeUnit(rawUnit) || rawUnit;
+        return {
+          _id: idx,
+          rawDescription: item.raw_description || '',
+          suggestedName: item.suggested_name || item.raw_description || '',
+          quantity: item.quantity != null ? String(item.quantity) : '',
+          unit: normalizedUnit,
+          unitPrice: item.unit_price != null ? String(item.unit_price) : '',
+          lineTotal: item.line_total != null ? String(item.line_total) : '',
+          itemType: item.suggested_item_type || 'unknown',
+          linkedItemId: null,
+          createNew: false,
+        };
+      }));
 
       setStep('review');
     } catch (err) {
@@ -851,11 +857,14 @@ const PurchasesPage = () => {
                     </div>
                     <div>
                       <Label className="text-xs mb-1 block">Unidade</Label>
-                      <Input
-                        value={line.unit}
-                        onChange={e => updateLine(idx, 'unit', e.target.value)}
-                        placeholder="kg, un, L..."
-                      />
+                      <Select value={line.unit || ''} onValueChange={v => updateLine(idx, 'unit', v)}>
+                        <SelectTrigger className="h-9 text-sm">
+                          <SelectValue placeholder="Unidade" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ALLOWED_UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label className="text-xs mb-1 block">Preço unitário</Label>

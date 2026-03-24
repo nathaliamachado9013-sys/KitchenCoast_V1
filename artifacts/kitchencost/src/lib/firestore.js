@@ -13,9 +13,10 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { generateId, convertUnits, canConvert } from './utils';
+import { generateId, convertUnits, canConvert, normalizeUnit } from './utils';
 
 // ====================== RESTAURANT & MEMBERS ======================
 
@@ -195,13 +196,18 @@ export const createIngredient = async (restaurantId, data) => {
   if (initialStock > 0) {
     await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
       type: 'in',
+      itemId: ref.id,
+      itemType: 'ingredient',
+      itemName: cleanData.name,
       ingredientId: ref.id,
       ingredientName: cleanData.name,
       quantity: initialStock,
       unit: cleanData.unit,
       unitCost,
+      totalValue: initialStock * unitCost,
       averageCostAfter: unitCost,
       referenceType: 'adjustment',
+      restaurantId,
       notes: 'Estoque inicial (ajuste de abertura)',
       createdAt: serverTimestamp(),
     });
@@ -410,14 +416,21 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
     updatedAt: serverTimestamp(),
   });
 
+  const entryUnitCost = data.unitCost || currentAvgCost;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
     type: 'in',
+    itemId: data.ingredientId,
+    itemType: 'ingredient',
+    itemName: ingredient.name,
     ingredientId: data.ingredientId,
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
-    unitCost: data.unitCost || currentAvgCost,
+    unitCost: entryUnitCost,
+    totalValue: data.quantity * entryUnitCost,
     averageCostAfter: newCost,
+    referenceType: 'manual',
+    restaurantId,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -434,6 +447,7 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
   }
 
   const newStock = currentQty - data.quantity;
+  const exitUnitCost = ingredient.averageCost || ingredient.costPerUnit || 0;
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', data.ingredientId), {
     currentStock: newStock,
@@ -442,12 +456,17 @@ export const createStockExit = async (restaurantId, data, ingredients) => {
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
     type: 'out',
+    itemId: data.ingredientId,
+    itemType: 'ingredient',
+    itemName: ingredient.name,
     ingredientId: data.ingredientId,
     ingredientName: ingredient.name,
     quantity: data.quantity,
     unit: ingredient.unit,
-    unitCost: ingredient.averageCost || ingredient.costPerUnit || 0,
+    unitCost: exitUnitCost,
+    totalValue: data.quantity * exitUnitCost,
     referenceType: 'adjustment',
+    restaurantId,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -513,13 +532,18 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
       }),
       addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
         type: 'out',
+        itemId: ing.id,
+        itemType: 'ingredient',
+        itemName: ing.name,
         ingredientId: ing.id,
         ingredientName: ing.name,
         quantity: qty,
         unit: ing.unit,
         unitCost,
+        totalValue: qty * unitCost,
         referenceType: 'production',
         referenceId: prodRef.id,
+        restaurantId,
         notes: `Produção: ${recipe.name} (${data.quantity} porç${data.quantity > 1 ? 'ões' : 'ão'})`,
         createdAt: serverTimestamp(),
       })
@@ -603,13 +627,18 @@ export const createResaleProduct = async (restaurantId, data) => {
   if (initialStock > 0) {
     await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
       type: 'in',
+      itemId: ref.id,
+      itemType: 'resale_product',
+      itemName: cleanData.name,
       resaleProductId: ref.id,
       ingredientName: cleanData.name,
       quantity: initialStock,
-      unit: cleanData.unit || 'un',
+      unit: cleanData.unit || 'uni',
       unitCost: cost,
+      totalValue: initialStock * cost,
       averageCostAfter: cost,
       referenceType: 'adjustment',
+      restaurantId,
       notes: 'Estoque inicial (ajuste de abertura)',
       createdAt: serverTimestamp(),
     });
@@ -657,15 +686,21 @@ export const createResaleStockEntry = async (restaurantId, data, resaleProducts)
     updatedAt: serverTimestamp(),
   });
 
+  const resaleEntryUnitCost = data.unitCost || currentAvgCost;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
     type: 'in',
+    itemId: data.productId,
+    itemType: 'resale_product',
+    itemName: product.name,
     resaleProductId: data.productId,
     ingredientName: product.name,
     quantity: data.quantity,
-    unit: product.unit || 'un',
-    unitCost: data.unitCost || currentAvgCost,
+    unit: product.unit || 'uni',
+    unitCost: resaleEntryUnitCost,
+    totalValue: data.quantity * resaleEntryUnitCost,
     averageCostAfter: newCost,
-    referenceType: 'adjustment',
+    referenceType: 'manual',
+    restaurantId,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -678,10 +713,11 @@ export const createResaleStockExit = async (restaurantId, data, resaleProducts) 
 
   const currentQty = product.stockQuantity || 0;
   if (data.quantity > currentQty) {
-    throw new Error(`Estoque insuficiente. Disponível: ${currentQty} ${product.unit || 'un'}`);
+    throw new Error(`Estoque insuficiente. Disponível: ${currentQty} ${product.unit || 'uni'}`);
   }
 
   const newStock = currentQty - data.quantity;
+  const resaleExitUnitCost = product.averageCost || product.cost || 0;
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'resale_products', data.productId), {
     stockQuantity: newStock,
@@ -690,12 +726,17 @@ export const createResaleStockExit = async (restaurantId, data, resaleProducts) 
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
     type: 'out',
+    itemId: data.productId,
+    itemType: 'resale_product',
+    itemName: product.name,
     resaleProductId: data.productId,
     ingredientName: product.name,
     quantity: data.quantity,
-    unit: product.unit || 'un',
-    unitCost: product.averageCost || product.cost || 0,
+    unit: product.unit || 'uni',
+    unitCost: resaleExitUnitCost,
+    totalValue: data.quantity * resaleExitUnitCost,
     referenceType: 'adjustment',
+    restaurantId,
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
@@ -813,6 +854,8 @@ export const createSale = async (restaurantId, data, menuItems) => {
 
   const profit = (salePrice - cost) * data.quantitySold;
   const revenue = salePrice * data.quantitySold;
+  const profitPerUnit = salePrice - cost;
+  const margin = salePrice > 0 ? (profitPerUnit / salePrice) * 100 : 0;
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'sales'), {
     itemId: item.id,
@@ -820,9 +863,15 @@ export const createSale = async (restaurantId, data, menuItems) => {
     itemType: item.itemType || 'recipe',
     quantitySold: data.quantitySold,
     totalAmount: revenue,
+    // Frozen snapshots — never recalculated after creation
     salePrice,
+    salePriceAtSale: salePrice,
     cost,
+    costAtSale: cost,
     profit,
+    profitAtSale: profit,
+    profitPerUnit,
+    margin,
     revenue,
     salesChannel: data.salesChannel || '',
     notes: data.notes || '',
@@ -1223,6 +1272,11 @@ export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) =>
 // ignoredLines = items with itemType 'ignore'.
 // Returns { confirmedLines, stockImportedValue, ignoredValue, discrepancy }.
 export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines, totalInvoiceAmount) => {
+  // Read the invoice doc to get supplierId for supplier totals update
+  const invoiceSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId));
+  const invoiceData = invoiceSnap.exists() ? invoiceSnap.data() : {};
+  const supplierId = invoiceData.supplierId || null;
+
   const stockLines = workingLines.filter(
     l => (l.itemType === 'ingredient' || l.itemType === 'resale_product') && l.linkedItemId,
   );
@@ -1273,15 +1327,20 @@ export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines
       const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
       batch.set(movRef, {
         type: 'in',
+        itemId: line.linkedItemId,
+        itemType: 'ingredient',
+        itemName: current.name,
         ingredientId: line.linkedItemId,
         ingredientName: current.name,
         quantity: qty,
         unit: line.unit || current.unit || '',
         unitCost: unitPrice,
+        totalValue: lineTotal,
         averageCostAfter: newAvg,
         invoiceId,
         referenceType: 'invoice',
         referenceId: invoiceId,
+        restaurantId,
         notes: `Importado da nota fiscal — ${line.rawDescription || line.confirmedName || line.suggestedName || ''}`,
         createdAt: serverTimestamp(),
       });
@@ -1311,15 +1370,20 @@ export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines
       const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
       batch.set(movRef, {
         type: 'in',
+        itemId: line.linkedItemId,
+        itemType: 'resale_product',
+        itemName: current.name,
         resaleProductId: line.linkedItemId,
         ingredientName: current.name,
         quantity: qty,
         unit: line.unit || '',
         unitCost: unitPrice,
+        totalValue: lineTotal,
         averageCostAfter: newAvg,
         invoiceId,
         referenceType: 'invoice',
         referenceId: invoiceId,
+        restaurantId,
         notes: `Importado da nota fiscal — ${line.rawDescription || line.confirmedName || line.suggestedName || ''}`,
         createdAt: serverTimestamp(),
       });
@@ -1348,6 +1412,19 @@ export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines
   const discrepancy = Math.round(((totalInvoiceAmount || 0) - stockImportedValue - ignoredValue) * 100) / 100;
   const hasErrors = confirmedLines.some(l => l.status === 'error');
   const status = hasErrors ? 'with_divergence' : 'imported';
+
+  // Update supplier totals atomically (same batch)
+  if (supplierId) {
+    batch.update(
+      doc(db, 'restaurants', restaurantId, 'suppliers', supplierId),
+      {
+        totalSpent: increment(totalInvoiceAmount || 0),
+        invoiceCount: increment(1),
+        lastInvoiceDate: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+    );
+  }
 
   batch.update(
     doc(db, 'restaurants', restaurantId, 'invoices', invoiceId),

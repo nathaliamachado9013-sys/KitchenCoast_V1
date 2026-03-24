@@ -1,0 +1,335 @@
+MATRIZ OPERACIONAL DO KITCHENCOST
+
+Formato:
+
+Módulo
+Entrada
+Processamento
+Saída
+Depende de
+Atualiza
+Erros a evitar
+1. IMPORTAÇÃO DE NOTA (CORE DO SISTEMA)
+Módulo
+
+Compras / Importar Nota
+
+Entrada
+arquivo (imagem ou PDF)
+supplier_id
+dados extraídos (IA ou manual)
+Processamento
+upload do arquivo (Cloudinary)
+extração (IA opcional)
+normalização das linhas
+revisão do usuário
+classificação:
+ingrediente
+revenda
+ignorar
+vincular ou criar item
+converter unidade para base (g/ml/L/Kg/uni)
+calcular:
+unit_price
+total
+detectar duplicidade
+executar importação (ATÔMICA):
+criar invoice
+criar purchase lines
+criar stock movements (entrada)
+atualizar estoque
+atualizar custo médio
+atualizar fornecedor
+Saída
+invoice salvo
+linhas salvas
+movimentos de estoque criados
+estoque atualizado
+custo médio atualizado
+Depende de
+fornecedor
+ingredientes
+revenda
+estoque
+Cloudinary
+Atualiza
+inventory
+supplier totals
+ingredient cost
+resale cost
+Erros a evitar
+criar item sem entrada no estoque
+atualizar estoque sem salvar nota
+PDF funcionar diferente de imagem
+permitir duplicidade sem aviso
+deixar nota travada em revisão
+2. CRIAÇÃO DE ITEM VIA NOTA
+Módulo
+
+Importação de Nota
+
+Entrada
+linha da nota marcada como "criar novo"
+Processamento
+criar item com:
+nome
+unidade base
+supplier_id
+custo inicial
+tenant_id
+converter unidade
+preparar para entrada de estoque
+Saída
+item criado completo
+Depende de
+fornecedor
+unidade normalizada
+Atualiza
+catálogo de ingredientes ou revenda
+Erros a evitar
+item sem fornecedor
+item sem unidade
+item criado mas sem entrada no estoque
+item com status crítico sem motivo
+3. ENTRADA DE ESTOQUE (NOTA OU MANUAL)
+Módulo
+
+Estoque / Compras
+
+Entrada
+item_id
+quantidade
+unidade
+custo
+Processamento
+converter unidade
+calcular valores
+criar stock_movement:
+type = in
+atualizar:
+quantidade atual
+custo médio (ponderado)
+Saída
+estoque atualizado
+movimento registrado
+Depende de
+item existente
+unidade compatível
+Atualiza
+inventory
+custo médio
+Erros a evitar
+entrada gerar saída
+não registrar movimento
+atualizar estoque direto sem movement
+4. STOCK MOVEMENTS (FONTE DA VERDADE)
+Módulo
+
+Stock Movements
+
+Entrada
+qualquer operação que altera estoque
+Processamento
+registrar movimento com:
+type (in/out)
+quantidade
+custo
+referência
+Saída
+histórico confiável
+Depende de
+todas operações de estoque
+Atualiza
+cálculo de estoque
+relatórios
+Erros a evitar
+alterar estoque sem movement
+movement sem referência
+movement com tipo errado
+5. CÁLCULO DE ESTOQUE
+Módulo
+
+Estoque
+
+Entrada
+stock_movements
+Processamento
+current_stock = soma(in) - soma(out)
+average_cost recalculado em entradas
+Saída
+quantidade atual
+custo médio atual
+valor total do item
+Depende de
+movements
+Atualiza
+dashboard
+fichas técnicas
+Erros a evitar
+usar total de notas
+ignorar movements
+recalcular custo errado
+6. FICHA TÉCNICA
+Módulo
+
+Fichas Técnicas
+
+Entrada
+ingredientes
+quantidades
+unidade da receita
+margem desejada
+Processamento
+converter unidade
+calcular custo por ingrediente
+somar custo total
+calcular preço ideal
+Saída
+custo atual
+preço ideal
+Depende de
+custo médio do ingrediente
+unidade correta
+Atualiza
+cardápio
+Erros a evitar
+usar custo fixo antigo
+unidade incompatível
+não atualizar após compra
+7. CARDÁPIO
+Módulo
+
+Cardápio
+
+Entrada
+ficha técnica
+preço praticado
+Processamento
+puxar custo atual
+puxar preço ideal
+calcular:
+lucro
+margem
+Saída
+preço sugerido
+preço praticado
+lucro por unidade
+Depende de
+ficha técnica
+vendas
+Atualiza
+analytics
+Erros a evitar
+não mostrar preço sugerido
+sobrescrever preço ideal
+calcular lucro com custo errado
+8. PRODUÇÃO
+Módulo
+
+Produção
+
+Entrada
+ficha técnica
+quantidade produzida
+Processamento
+calcular consumo de ingredientes
+criar movements de saída
+Saída
+estoque reduzido
+custo de produção registrado
+Depende de
+ficha técnica
+estoque
+Atualiza
+relatórios
+Erros a evitar
+não baixar estoque
+usar unidade errada
+9. VENDAS
+Módulo
+
+Vendas
+
+Entrada
+item vendido
+preço
+Processamento
+congelar:
+custo
+preço
+lucro
+Saída
+venda registrada
+Depende de
+cardápio
+Atualiza
+lucro
+relatórios
+Erros a evitar
+recalcular venda antiga
+usar custo atualizado
+10. FORNECEDOR
+Módulo
+
+Fornecedores
+
+Entrada
+notas
+Processamento
+somar valores
+ordenar notas
+Saída
+total gasto
+histórico
+Depende de
+invoices
+Atualiza
+dashboard
+Erros a evitar
+valores inconsistentes
+moeda errada
+11. CLOUDINARY + ARQUIVOS
+Módulo
+
+Upload
+
+Entrada
+arquivo
+Processamento
+salvar com:
+tenant_id
+public_id
+Saída
+arquivo acessível
+Depende de
+upload
+Atualiza
+invoices
+Erros a evitar
+arquivo sem tenant
+não apagar ao excluir conta
+12. EXCLUSÃO DE CONTA
+Módulo
+
+Configurações
+
+Entrada
+confirmação
+reautenticação
+Processamento
+apagar:
+Firestore
+Cloudinary
+Auth
+Saída
+conta removida
+Depende de
+tenant_id
+Atualiza
+sistema
+Erros a evitar
+deixar dados órfãos
+não apagar arquivos
+permitir sem confirmação
+🧠 ESSÊNCIA DO SISTEMA (resumo final)
+Compra → Nota → Item → Estoque → Custo → Ficha → Preço → Venda → Lucro

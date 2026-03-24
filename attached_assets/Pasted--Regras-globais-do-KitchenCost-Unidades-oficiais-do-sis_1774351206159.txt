@@ -1,0 +1,565 @@
+. Regras globais do KitchenCost
+Unidades oficiais do sistema
+
+As unidades base aceitas devem ser:
+
+g
+ml
+L
+Kg
+uni
+Regra de normalização
+
+O sistema pode receber compra em:
+
+pack
+caixa
+saco
+dúzia
+garrafa
+etc.
+
+Mas antes de entrar no estoque, precisa converter para uma das unidades oficiais.
+
+Exemplos
+15 dúzias de ovos → 180 uni
+2 packs de pão com 12 un → 24 uni
+3 sacos de 2,5 Kg de grelos → 7,5 Kg
+4 embalagens de 30 g de salsa → 120 g
+2 caixas de 5 L de maionese → 10 L
+Regra de entrada
+
+Deve existir obrigatoriamente:
+
+Entrada manual
+Entrada por nota com IA
+
+A IA é opcional, nunca obrigatória.
+
+Regra de margem
+Margem desejada e preço ideal ficam na Ficha Técnica
+Preço praticado fica no Cardápio
+O cardápio deve puxar o preço ideal da ficha técnica como sugestão
+Deve haver:
+botão Usar preço sugerido
+ou campo para o usuário definir o preço praticado manualmente
+2. Fio central do sistema
+Fluxo principal
+
+Fornecedor
+→ Nota / Compra
+→ Item criado ou vinculado
+→ Entrada no estoque
+→ Custo médio atualizado
+→ Ficha técnica recalculada
+→ Preço ideal recalculado
+→ Cardápio mostra sugestão e preço praticado
+→ Produção e vendas baixam estoque
+→ Relatórios mostram custo, margem e lucro reais
+
+3. Mapa cirúrgico por página
+A. Fornecedores
+Função
+
+Gerir fornecedores e servir de ponto de consulta de compras/notas.
+
+Depende de
+suppliers
+purchase_invoices
+Atualiza
+histórico de notas
+total gasto
+última compra
+número de notas
+Regras
+cada nota importada deve ter supplier_id
+total gasto = soma das notas importadas do fornecedor
+a aba Notas deve listar exatamente as mesmas notas usadas no card
+Exemplo
+
+Fornecedor: Makro
+
+total notas: 4
+total gasto: 770 €
+última compra: 12/03/2026
+
+Ao abrir Makro:
+
+aba Dados
+aba Notas com essas 4 notas
+Nunca pode acontecer
+card mostra 4 notas e aba Notas fica vazia
+moeda diferente da definida no tenant
+nota sem vínculo com fornecedor
+B. Compras / Importar Nota
+Função
+
+Transformar documento fiscal em entrada operacional.
+
+Depende de
+fornecedor
+arquivo (Cloudinary)
+extração IA opcional
+ingredientes
+produtos revenda
+estoque
+Atualiza
+invoice document
+purchase record
+invoice lines
+stock movements
+custo médio
+fornecedor
+estoque
+inventário
+Regras
+IA é opcional
+entrada manual deve existir
+revisão humana é obrigatória
+duplicidade deve ser detectada
+itens podem ser:
+ingrediente
+revenda
+ignorar
+itens novos podem ser criados com confirmação
+operação deve ser atômica
+Exemplo
+
+Nota:
+
+total fiscal: 670,27 €
+itens importados: 498,10 €
+ignorados: 172,17 €
+
+Sistema mostra:
+
+total da nota
+total importado
+total ignorado
+discrepância
+Nunca pode acontecer
+criar item sem atualizar estoque
+atualizar estoque sem salvar nota
+nota ficar travada em revisão sem recovery
+foto funcionar e PDF não
+C. Entrada Manual de Estoque
+Função
+
+Permitir entrada sem IA/nota.
+
+Depende de
+ingredientes
+produtos revenda
+estoque
+Atualiza
+stock movements
+quantidade atual
+custo médio
+valor do inventário
+Regras
+usuário escolhe item existente
+ou cria novo item inline
+precisa informar:
+quantidade
+unidade
+custo unitário ou total
+o sistema auto-calcula o campo faltante
+Exemplo
+
+Entrada manual:
+
+Leite UHT
+12 L
+total 10,84 €
+
+Sistema calcula:
+
+preço unitário = 0,90 €/L
+Nunca pode acontecer
+lista sem scroll
+usuário preso porque item não existe
+item criado sem fornecedor/campos básicos
+D. Ingredientes
+Função
+
+Catálogo mestre dos insumos de cozinha.
+
+Depende de
+criação manual
+criação por nota
+estoque
+Atualiza
+fichas técnicas
+custo atual das receitas
+status de estoque
+Campos mínimos
+nome
+unidade base
+fornecedor padrão
+custo médio atual
+estoque atual
+estoque mínimo
+categoria
+Regras
+se criado por nota, herda:
+fornecedor
+unidade normalizada
+custo
+estoque inicial importado
+status crítico só se realmente estiver abaixo do mínimo
+Exemplo
+
+Ingrediente criado por nota:
+
+Salsa
+unidade base: g
+fornecedor: Makro
+estoque atual: 120 g
+custo médio: 0,05 €/g
+Nunca pode acontecer
+ingrediente sem fornecedor quando veio da nota
+ingrediente com estoque > 0 marcado crítico sem motivo
+unidade incompatível com ficha técnica
+E. Produtos de Revenda
+Função
+
+Catálogo mestre dos itens vendidos prontos.
+
+Depende de
+criação manual
+criação por nota
+estoque
+vendas
+Atualiza
+cardápio de revenda
+estoque
+lucro de venda
+Regras
+herda fornecedor e custo da nota
+unidade base geralmente uni, L, ml
+Exemplo
+Coca-Cola 1L
+24 uni
+custo unitário: 1,22 €
+fornecedor: Makro
+Nunca pode acontecer
+entrar como ingrediente por erro
+ficar fora do estoque após compra
+F. Estoque
+Função
+
+Mostrar o estado atual do inventário.
+
+Depende de
+stock_movements
+Atualiza
+dashboard
+valor do inventário
+alertas
+custo de receitas
+Regras
+estoque atual = entradas - saídas
+entradas:
+nota
+compra manual
+ajuste positivo
+saídas:
+produção
+venda de revenda
+perda
+ajuste negativo
+Fórmula
+
+inventory_value = soma(current_stock × current_average_cost)
+
+Exemplo
+Tomate: 10 Kg × 2,50 = 25,00 €
+Sprite: 4 uni × 7,65 = 30,60 €
+inventário total = 55,60 €
+Nunca pode acontecer
+calcular inventário com base no total das notas
+nota aparecer como saída
+item vinculado não entrar no estoque
+G. Stock Movements
+Função
+
+Fonte de verdade do estoque.
+
+Campos mínimos
+item_id
+item_type
+movement_type (in / out)
+quantity
+unit
+unit_cost
+total_value
+reference_type
+reference_id
+tenant_id
+date
+Regras
+toda mudança de estoque gera movimento
+nada atualiza estoque “em silêncio”
+Exemplo
+
+Importação de nota:
+
+movement_type = in
+label = Entrada
+
+Produção:
+
+movement_type = out
+label = Saída
+Nunca pode acontecer
+compra gerar saída
+produção não gerar baixa
+estoque mudar sem movimento
+H. Fichas Técnicas
+Função
+
+Definir custo e preço ideal de pratos/preparações.
+
+Depende de
+ingredientes
+unidades compatíveis
+custo médio atual
+Atualiza
+custo do prato
+margem desejada
+preço ideal
+Campos-chave
+nome
+categoria
+rendimento
+ingredientes + quantidades
+margem desejada
+preço ideal calculado
+Regras
+custo atual da ficha é dinâmico
+usa custo médio atual dos ingredientes
+margem fica aqui
+preço ideal fica aqui
+Exemplo
+
+Prato:
+
+custo atual: 4,20 €
+margem desejada: 70%
+
+Preço ideal:
+4,20 / (1 - 0,70) = 14,00 €
+
+Nunca pode acontecer
+ficha guardar custo fixo para sempre
+ingrediente em Kg e receita em g sem conversão
+margem calculada em página errada
+I. Cardápio
+Função
+
+Gerir itens vendidos e o preço praticado.
+
+Depende de
+ficha técnica
+revenda
+vendas
+Atualiza
+preço praticado
+margem real
+lucro por unidade
+analytics
+Regras
+puxar preço ideal da ficha como sugestão
+mostrar:
+custo atual
+preço ideal
+preço praticado
+permitir:
+botão Usar preço sugerido
+ou editar o preço praticado
+Exemplo
+
+Ficha técnica sugere 14,00 €
+Cardápio mostra:
+
+preço ideal: 14,00 €
+preço praticado atual: 13,50 €
+botão: usar preço sugerido
+Nunca pode acontecer
+cardápio sem mostrar a sugestão
+preço praticado sobrescrever o ideal
+lucro usar custo antigo errado
+J. Produção
+Função
+
+Registrar o que foi preparado.
+
+Depende de
+fichas técnicas
+estoque
+Atualiza
+baixa ingredientes
+custo de produção
+relatórios
+Regras
+produzir = saída de ingredientes do estoque
+precisa registrar:
+o quê
+quanto
+quando
+Exemplo
+
+Produção:
+
+arroz branco
+10 porções
+
+Sistema:
+
+baixa arroz, água, óleo, sal conforme ficha
+Nunca pode acontecer
+produção sem baixar estoque
+custo de produção não aparecer no relatório
+K. Vendas
+Função
+
+Registrar o que foi vendido.
+
+Depende de
+cardápio
+preço praticado
+custo atual da ficha ou item revenda
+Atualiza
+lucro
+margem histórica
+summaries
+baixa de revenda (e futuramente consumo de produção, se houver)
+Regras
+congelar:
+cost_at_time_of_sale
+sale_price_at_time_of_sale
+profit_at_time_of_sale
+histórico não pode mudar depois
+Exemplo
+
+Venda:
+
+Bacalhau com broa
+preço praticado: 22 €
+custo no momento: 8 €
+
+Sistema salva:
+
+lucro = 14 €
+mesmo que o bacalhau suba depois, a venda antiga não muda
+Nunca pode acontecer
+relatório histórico recalcular venda antiga com custo novo
+L. Relatórios
+Função
+
+Mostrar a verdade operacional e financeira.
+
+Depende de
+summaries
+estoque
+vendas
+produção
+notas
+Regras
+usar dados consistentes
+histórico congelado onde necessário
+current cost onde necessário
+Exemplos
+rentabilidade do cardápio
+custo de produção
+valor do inventário
+notas por fornecedor
+Nunca pode acontecer
+relatório com fonte diferente da tela operacional correspondente
+M. Configurações
+Função
+
+Regras globais do tenant.
+
+Deve guardar
+moeda
+idioma
+custos fixos
+categorias
+margens recomendadas por categoria
+exclusão de conta
+Regras
+moeda única usada em todo o sistema
+custos fixos usados para análises de lucro real
+margem recomendada configurável
+4. IA: onde entra e onde não entra
+IA entra em:
+leitura de nota
+sugestão de classificação
+sugestão de item existente
+alertas
+recomendação de preço
+IA não substitui:
+entrada manual
+revisão humana
+regra de estoque
+cálculo de custo
+5. Exemplos cirúrgicos de lógica
+Exemplo 1 — fornecedor → nota → estoque
+
+Fornecedor: Makro
+Nota: 600 €
+Itens válidos para estoque: 480 €
+Ignorados: 120 €
+
+Sistema deve:
+
+salvar nota total = 600 €
+imported_value = 480 €
+ignored_value = 120 €
+atualizar total gasto do fornecedor com 600 €
+atualizar inventário com 480 € efetivos
+Exemplo 2 — item criado por nota
+
+Linha: Salsa 4 × 30 g = 120 g, total 5,98 €
+
+Sistema deve criar:
+
+ingrediente: Salsa
+unidade base: g
+stock atual: 120
+custo unitário: 0,05 €/g
+fornecedor: Makro
+Exemplo 3 — ficha técnica + cardápio
+
+Ficha:
+
+custo atual: 4,20 €
+margem desejada: 70%
+preço ideal: 14,00 €
+
+Cardápio:
+
+mostra preço ideal = 14,00 €
+preço praticado atual = 13,50 €
+botão: usar preço sugerido
+Exemplo 4 — produção
+
+Ficha arroz:
+
+1 porção = 180 g arroz cozido equivalente
+produzir 10 porções
+
+Sistema:
+
+baixa insumos conforme ficha
+registra custo de produção
+atualiza relatório
+6. O que nunca pode ser quebrado
+compra nunca é saída
+estoque nunca pode vir do total das notas
+ficha técnica nunca pode usar unidade incompatível
+card do fornecedor e aba Notas devem bater
+item criado por nota não pode ficar incompleto
+venda histórica não pode ser recalculada com custo atual
+IA nunca pode ser o único caminho

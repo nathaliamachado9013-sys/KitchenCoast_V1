@@ -5,7 +5,53 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-export const UNITS = ['kg', 'g', 'l', 'ml', 'unidade', 'dúzia', 'pacote', 'caixa'];
+// Official base units accepted by the system (spec requirement)
+export const ALLOWED_UNITS = ['g', 'ml', 'L', 'Kg', 'uni'];
+
+// Legacy list kept for backward compatibility (dropdowns may still show these)
+export const UNITS = ['Kg', 'g', 'L', 'ml', 'uni'];
+
+/**
+ * Normalize any input unit string to one of the official ALLOWED_UNITS.
+ * Returns null if the unit cannot be mapped (caller should warn the user).
+ *
+ * Official units: g, ml, L, Kg, uni
+ * Common aliases handled:
+ *   mass   → g or Kg
+ *   volume → ml or L
+ *   count  → uni
+ */
+export const normalizeUnit = (raw) => {
+  if (!raw) return null;
+  const u = String(raw).trim().toLowerCase();
+
+  // Already canonical (case-insensitive check)
+  const canonical = ALLOWED_UNITS.find(a => a.toLowerCase() === u);
+  if (canonical) return canonical;
+
+  // Mass aliases → g or Kg
+  if (['kg', 'kilo', 'kilos', 'quilograma', 'quilogramas', 'kgr'].includes(u)) return 'Kg';
+  if (['g', 'gr', 'gram', 'grams', 'gramas', 'grama'].includes(u)) return 'g';
+
+  // Volume aliases → L or ml
+  if (['l', 'lt', 'ltr', 'litro', 'litros', 'litre', 'litres'].includes(u)) return 'L';
+  if (['ml', 'mililitro', 'mililitros', 'milliliter', 'milliliters', 'mililiter'].includes(u)) return 'ml';
+
+  // Count aliases → uni
+  if ([
+    'uni', 'un', 'unit', 'units', 'unidade', 'unidades', 'und', 'ud',
+    'pc', 'pcs', 'peça', 'peças', 'item', 'items',
+    'cx', 'caixa', 'caixas', 'box', 'boxes',
+    'pkt', 'pk', 'pacote', 'pacotes', 'pack', 'packs',
+    'saco', 'sacos', 'bag', 'bags',
+    'garrafa', 'garrafas', 'bottle', 'bottles',
+    'lata', 'latas', 'can', 'cans',
+    'dz', 'dúzia', 'dúzias', 'dozen', 'dozens',
+    'par', 'para', 'par',
+  ].includes(u)) return 'uni';
+
+  return null; // unknown — caller must decide
+};
 
 export const INGREDIENT_CATEGORIES = [
   'Carnes', 'Vegetais', 'Frutas', 'Laticínios', 'Grãos', 'Temperos', 'Bebidas', 'Outros'
@@ -60,11 +106,18 @@ export const formatDateTime = (date) => {
 };
 
 export const UNIT_CONVERSIONS = {
+  // Mass — base unit: g
   g: 1.0,
   kg: 1000.0,
+  Kg: 1000.0,
+  // Volume — base unit: ml
   ml: 1.0,
   l: 1000.0,
+  L: 1000.0,
+  // Count — base unit: uni
+  uni: 1.0,
   unit: 1.0,
+  un: 1.0,
   unidade: 1.0,
   package: 1.0,
   pacote: 1.0,
@@ -74,9 +127,9 @@ export const UNIT_CONVERSIONS = {
 };
 
 export const UNIT_GROUPS = {
-  mass: ['g', 'kg'],
-  volume: ['ml', 'l'],
-  count: ['unit', 'unidade', 'package', 'pacote', 'box', 'caixa', 'dúzia'],
+  mass: ['g', 'kg', 'Kg'],
+  volume: ['ml', 'l', 'L'],
+  count: ['uni', 'unit', 'un', 'unidade', 'package', 'pacote', 'box', 'caixa', 'dúzia'],
 };
 
 export const canConvert = (fromUnit, toUnit) => {
