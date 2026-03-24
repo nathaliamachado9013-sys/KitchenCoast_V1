@@ -43,6 +43,7 @@ const STATUS_LABELS = {
   in_review: 'Em revisão',
   imported: 'Importado',
   with_divergence: 'Com divergência',
+  failed: 'Falha na importação',
   cancelled: 'Cancelado',
 };
 
@@ -246,11 +247,13 @@ const PurchasesPage = () => {
     }
 
     setIsSaving(true);
+    // Declared outside try so the catch block can mark the invoice as failed if it was created
+    let invoiceId = null;
     try {
       const totalAmount = parseFloat(invoiceHeader.totalAmount) || 0;
 
       // Step 1: Create invoice header doc
-      const { id: invoiceId } = await createInvoice(restaurant.id, {
+      const created = await createInvoice(restaurant.id, {
         supplierId: selectedSupplier.id,
         supplierNameSnapshot: selectedSupplier.name,
         supplierNameDetected: invoiceHeader.supplierNameDetected,
@@ -264,8 +267,9 @@ const PurchasesPage = () => {
         status: 'in_review',
         uploadedBy: user?.uid || '',
       });
+      invoiceId = created.id;
 
-      // Step 2: Upload file (non-blocking for import if it fails)
+      // Step 2: Upload file (non-blocking — import continues even if upload fails)
       let fileUrl = '';
       let attachmentMeta = null;
       try {
@@ -273,36 +277,37 @@ const PurchasesPage = () => {
         fileUrl = attachmentMeta.url;
         await updateInvoice(restaurant.id, invoiceId, { fileUrl, attachment: attachmentMeta });
       } catch (uploadErr) {
-        console.warn('Cloudinary upload failed:', uploadErr.message);
+        console.warn('Cloudinary upload failed (import continues):', uploadErr.message);
       }
 
       // Step 3: Create new items for lines with createNew = true (must precede the batch)
+      // Any failure here is fatal — we throw so the invoice is marked failed instead of left in_review
       const workingLines = reviewLines.map(l => ({ ...l }));
       for (const line of workingLines) {
         if (!line.createNew || line.linkedItemId) continue;
-        try {
-          if (line.itemType === 'ingredient') {
-            const newItem = await createIngredient(restaurant.id, {
-              name: line.suggestedName,
-              unit: line.unit || '',
-              costPerUnit: 0,
-              currentStock: 0,
-              minStock: 0,
-              supplierId: selectedSupplier.id,
-              supplierName: selectedSupplier.name,
-            });
-            line.linkedItemId = newItem.id;
-          } else if (line.itemType === 'resale_product') {
-            const newItem = await createResaleProduct(restaurant.id, {
-              name: line.suggestedName,
-              cost: 0,
-              salePrice: 0,
-              stockQuantity: 0,
-            });
-            line.linkedItemId = newItem.id;
-          }
-        } catch (err) {
-          console.error('Falha ao criar item:', err);
+        if (line.itemType === 'ingredient') {
+          const newItem = await createIngredient(restaurant.id, {
+            name: line.suggestedName,
+            unit: line.unit || '',
+            costPerUnit: parseFloat(line.unitPrice) || 0,
+            currentStock: 0,
+            minStock: 0,
+            supplierId: selectedSupplier.id,
+            supplierName: selectedSupplier.name,
+            createdFrom: 'invoice_import',
+          });
+          line.linkedItemId = newItem.id;
+        } else if (line.itemType === 'resale_product') {
+          const newItem = await createResaleProduct(restaurant.id, {
+            name: line.suggestedName,
+            cost: parseFloat(line.unitPrice) || 0,
+            salePrice: 0,
+            stockQuantity: 0,
+            supplierId: selectedSupplier.id,
+            supplierName: selectedSupplier.name,
+            createdFrom: 'invoice_import',
+          });
+          line.linkedItemId = newItem.id;
         }
       }
 
@@ -329,7 +334,23 @@ const PurchasesPage = () => {
       toast({ title: 'Nota importada com sucesso!' });
       await loadData();
     } catch (err) {
-      toast({ title: 'Erro ao importar nota', description: err.message, variant: 'destructive' });
+      // If the invoice was already created, mark it as failed so it is not stuck in_review
+      if (invoiceId) {
+        try {
+          await updateInvoice(restaurant.id, invoiceId, {
+            status: 'failed',
+            failureReason: err.message || 'Erro desconhecido durante a importação',
+          });
+        } catch (_) {
+          // Best-effort — log silently if this also fails
+          console.error('Falha ao registar estado de erro na nota:', _);
+        }
+      }
+      toast({
+        title: 'Falha ao importar nota',
+        description: err.message || 'Verifique os dados e tente novamente.',
+        variant: 'destructive',
+      });
     } finally {
       setIsSaving(false);
     }

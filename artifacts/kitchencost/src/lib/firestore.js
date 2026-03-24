@@ -181,11 +181,13 @@ export const createIngredient = async (restaurantId, data) => {
     costPerUnit: unitCost,
     averageCost: unitCost,
     supplierId: cleanData.supplierId || null,
+    supplierName: cleanData.supplierName || null,
     notes: cleanData.notes || '',
     category: cleanData.category || '',
     currentStock: initialStock,
     minStock: cleanData.minStock || 0,
     priceHistory: [{ price: unitCost, date: new Date().toISOString() }],
+    createdFrom: cleanData.createdFrom || null,
     active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -586,12 +588,14 @@ export const createResaleProduct = async (restaurantId, data) => {
     averageCost: cost,
     salePrice,
     supplierId: cleanData.supplierId || null,
+    supplierName: cleanData.supplierName || null,
     stockQuantity: initialStock,
     minStock: cleanData.minStock || 0,
     sku: cleanData.sku || '',
     notes: cleanData.notes || '',
     profitPerUnit,
     margin,
+    createdFrom: cleanData.createdFrom || null,
     active: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -1357,7 +1361,23 @@ export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines
     },
   );
 
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (commitErr) {
+    // Atomic batch failed — write a controlled failed state so invoice is recoverable
+    try {
+      await updateDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId), {
+        status: 'failed',
+        failureReason: commitErr.message || 'Falha no commit da transação',
+        failedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (_writeErr) {
+      // If we can't even write the failed status, log and rethrow original error
+      console.error('Falha ao registar estado de erro na nota:', _writeErr);
+    }
+    throw commitErr;
+  }
 
   return { confirmedLines, stockImportedValue, ignoredValue, discrepancy, status };
 };

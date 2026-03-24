@@ -1,0 +1,261 @@
+You are a senior full-stack engineer and product reliability specialist.
+
+We need to fix critical production issues in KitchenCost BEFORE continuing broader testing.
+
+IMPORTANT:
+- Do NOT redesign the SaaS
+- Do NOT refactor unrelated modules
+- Do NOT add new features outside this scope
+- Focus on reliability, consistency, and safe data flow
+- Prefer correcting source-of-truth logic over cosmetic changes
+
+The following 6 areas are critical and must be fixed now.
+
+==================================================
+1. INVOICE FLOW MUST BE FULLY RELIABLE
+==================================================
+
+Current known problems:
+- invoice may save partially
+- invoice may remain stuck in "review"
+- stock may update inconsistently
+- image and PDF imports may behave differently
+- user cannot trust the import flow yet
+
+Required behavior:
+For every invoice import, whether image or PDF:
+1. upload file
+2. extract lines
+3. normalize extracted data into one common structure
+4. validate all lines
+5. detect duplicates
+6. create or link items
+7. create stock movements
+8. update stock quantities
+9. update weighted average cost
+10. save invoice and purchase records
+11. finalize invoice status correctly
+
+This must be atomic:
+- either all steps succeed
+- or nothing is committed
+
+If any step fails:
+- invoice must go to a recoverable failed state
+- stock must not update partially
+- ingredients must not be created without corresponding operational consistency
+
+Example of correct implementation:
+- use one orchestration function for both image and PDF
+- normalize PDF and image extraction result to the same invoice payload shape
+- use transaction/batch where possible
+- on failure, write a controlled error state instead of leaving invoice stuck in review
+
+==================================================
+2. INHERITED FIELDS WHEN CREATING INGREDIENTS / ITEMS
+==================================================
+
+Current known problems:
+- ingredient created from invoice may not receive supplier
+- important fields may remain empty
+- item may appear as critical even after stock import
+- incomplete records reduce trust in the system
+
+Required behavior:
+When creating a new ingredient from invoice import, automatically inherit:
+- tenant_id
+- supplier_id from invoice supplier
+- normalized unit
+- latest unit cost
+- current stock quantity (if stock update succeeds)
+- optional default category, if category system exists
+- created_from = "invoice_import"
+
+When creating a resale product from invoice import, do the same equivalent inheritance.
+
+Examples:
+If invoice belongs to supplier Makro and user creates ingredient "Leite UHT":
+- supplier_id must be Makro
+- unit must be normalized to L
+- latest cost must come from the invoice line
+- if 12L were imported, stock must become 12
+- status must not show "critical" unless minimum stock rule still makes it critical
+
+Do not allow incomplete master items with missing supplier and broken defaults.
+
+==================================================
+3. STOCK CONSISTENCY: LINKED ITEMS MUST ALWAYS ENTER STOCK
+==================================================
+
+Current known problems:
+- some linked items do not actually increase stock
+- items may be created but remain critical
+- inventory cannot be trusted
+
+Required behavior:
+For each valid stock-affecting invoice line:
+- if linked to existing item → update that item stock
+- if marked createNew → create item first, then update stock
+- create corresponding stock movement
+- recalculate current stock quantity
+- recalculate weighted average cost
+- recalculate inventory totals
+
+No silent skip is allowed.
+
+Add defensive validation:
+- if item exists/was created but stock movement fails → fail import
+- if stock movement exists but stock summary fails → fail import
+- do not commit partial inventory effects
+
+Example:
+Invoice line:
+Leite UHT, quantity 12, unit L, total 10.84
+Expected:
+- ingredient exists or is created
+- stock movement "Entrada" created
+- item stock increases by 12L
+- cost average updated
+- inventory value updated
+
+==================================================
+4. CLOUDINARY FILE DELETION MUST BE REAL, NOT ASSUMED
+==================================================
+
+Current risk:
+The system summary says full deletion exists, but it is not yet explicitly confirmed that Cloudinary files are deleted via API.
+
+Required behavior:
+When deleting account or deleting invoice if file cleanup is expected:
+- use Cloudinary API to delete the actual uploaded asset by public_id
+- do not assume deleting Firestore reference removes the file
+- store and use Cloudinary public_id consistently
+
+Required file metadata on invoice attachment:
+- provider = "cloudinary"
+- file_url
+- public_id
+- file_type
+- mime_type if available
+- tenant_id
+
+On full account deletion:
+- delete all tenant-scoped Cloudinary files before finalizing destructive removal
+- log failures if file deletion fails
+- do not silently claim files were deleted if they were not
+
+Example folder structure:
+kitchencost/{tenant_id}/invoices/{invoice_id}
+
+==================================================
+5. FIRESTORE / TENANT ISOLATION MUST BE VERIFIED, NOT ASSUMED
+==================================================
+
+Current risk:
+The system says tenant isolation is confirmed, but we need implementation review and verification.
+
+Required behavior:
+Review and harden:
+- every business document has tenant_id
+- every query filters by tenant_id
+- Firestore rules prevent cross-tenant access
+- users cannot read/write data outside their own company
+
+Check these modules at minimum:
+- suppliers
+- invoices
+- purchases
+- ingredients
+- resale_products
+- stock_movements
+- sales
+- production
+- settings
+- analytics summaries
+
+Implementation expectation:
+- audit current Firestore rules
+- patch any permissive rules
+- ensure all frontend reads/writes use tenant-scoped paths or filters
+- ensure no "load all then filter in UI" anti-pattern
+
+Example of correct behavior:
+User from tenant A must never be able to read supplier, invoice, or stock data from tenant B even if they manually manipulate route params or requests.
+
+==================================================
+6. STRUCTURED ERROR HANDLING AND RECOVERY
+==================================================
+
+Current known problems:
+- raw errors appear
+- invoices can become stuck in "review"
+- users may not know what failed
+- failures are not recoverable enough
+
+Required behavior:
+Implement safer invoice and critical-operation states:
+- pending
+- processing
+- completed
+- failed
+- cancelled
+
+If invoice import fails:
+- store controlled failure status
+- store error message safely for internal debugging
+- show user-friendly error in UI
+- allow retry import
+- allow delete/cancel if appropriate
+- do not leave invoice inaccessible
+
+Do not expose raw technical garbage to the user unless in debug logs.
+
+Example:
+Instead of a broken review state after invalid metadata:
+- invoice.status = "failed"
+- user sees:
+  "Falha ao concluir a importação. Verifique os dados da nota e tente novamente."
+- system logs internal reason for support/debug
+
+==================================================
+IMPLEMENTATION NOTES
+==================================================
+
+Use these implementation principles:
+- one source of truth for invoice import logic
+- shared normalization layer for image and PDF imports
+- stock_movements as source of truth for stock change
+- weighted average cost as current cost method
+- historical sales cost remains frozen
+- sanitize all payloads before Firestore writes
+- never write undefined values to Firestore
+
+==================================================
+WHAT NOT TO DO
+==================================================
+
+Do NOT:
+- redesign the whole UI
+- replace Firebase Auth
+- migrate away from Cloudinary
+- create parallel stock logic
+- keep partial import side effects
+- silently ignore failures
+- claim tenant isolation without enforcing it
+- delete only Firestore references while leaving Cloudinary assets orphaned
+
+==================================================
+EXPECTED FINAL RESULT
+==================================================
+
+After this fix:
+1. invoice import is reliable for image and PDF
+2. invoices do not get stuck in review without recovery
+3. created ingredients/products inherit correct supplier and metadata
+4. linked items always enter stock correctly
+5. inventory and stock become trustworthy
+6. Cloudinary deletions are real and verified
+7. tenant isolation is enforced in code and rules
+8. users get clear recoverable error handling instead of broken states
+
+This is a production reliability and data integrity task.

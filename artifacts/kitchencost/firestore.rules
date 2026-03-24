@@ -69,7 +69,7 @@ service cloud.firestore {
       allow read: if isSelf(uid);
       allow create: if isSelf(uid);
       allow update: if isSelf(uid);
-      allow delete: if false;
+      allow delete: if isSelf(uid);
     }
 
     /* =========================
