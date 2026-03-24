@@ -171,13 +171,28 @@ const PurchasesPage = () => {
         const needsConversion = aiNeedsConversion || conv.needsConversion;
         const conversionNote = item.conversion_note || conv.conversionNote || null;
 
+        const convQty    = conv.quantity;
+        const aiLineTotal = item.line_total != null ? parseFloat(item.line_total) : null;
+        const aiUnitPrice = item.unit_price != null ? parseFloat(item.unit_price) : null;
+
+        // Bug B fix: if quantity was multiplied by conversion (e.g. 15 dz → 180 uni),
+        // the AI's unit_price is still "per original unit" (per dozen).
+        // Recalculate as lineTotal / convertedQty so stock cost is correct.
+        const quantityChanged = convQty != null && convQty !== parseFloat(item.quantity);
+        let finalUnitPrice;
+        if (quantityChanged && aiLineTotal > 0 && convQty > 0) {
+          finalUnitPrice = String(Math.round(aiLineTotal / convQty * 10000) / 10000);
+        } else {
+          finalUnitPrice = aiUnitPrice != null ? String(aiUnitPrice) : '';
+        }
+
         return {
           _id: idx,
           rawDescription: item.raw_description || '',
           suggestedName: item.suggested_name || item.raw_description || '',
-          quantity: conv.quantity != null ? String(conv.quantity) : '',
-          unit: conv.unit || 'uni',
-          unitPrice: item.unit_price != null ? String(item.unit_price) : '',
+          quantity: convQty != null ? String(convQty) : '',
+          unit: conv.unit || null,
+          unitPrice: finalUnitPrice,
           lineTotal: item.line_total != null ? String(item.line_total) : '',
           itemType: item.suggested_item_type || 'unknown',
           linkedItemId: null,
@@ -830,6 +845,10 @@ const PurchasesPage = () => {
           <div className="mb-4 text-xs text-muted-foreground space-y-0.5">
             <p>Itens marcados como <strong>Ignorar</strong> serão salvos na nota, mas não entrarão no estoque.</p>
             <p>Itens <strong>Desconhecidos</strong> precisam ser classificados ou ignorados antes da importação.</p>
+            <p className="text-amber-600">
+              ⚠ Confira se a <strong>quantidade</strong> representa o total real (ex: 6 Kg, não 3 caixas).
+              O preço unitário é recalculado automaticamente após conversão.
+            </p>
           </div>
 
           {/* Item cards */}

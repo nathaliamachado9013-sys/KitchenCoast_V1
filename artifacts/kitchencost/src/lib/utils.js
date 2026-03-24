@@ -73,29 +73,65 @@ const VARIABLE_MULTIPLIER_UNITS = new Set([
 ]);
 
 /**
- * parseSafeNumber — parse a quantity value that may arrive as:
- *   - a JS number (0.5, 12, 500)
- *   - a numeric string ("12", "0.5")
- *   - a fraction string ("1/2", "3/4") — valid in invoices, invalid in JSON but
- *     some AI models return them inside strings
- *   - null / undefined / anything else → returns 0 (never NaN or undefined)
+ * parseSafeNumber — safely parse any quantity that may arrive as:
+ *   - a JS number: 0.5, 12, 500
+ *   - a numeric string: "12", "0.5"
+ *   - comma decimal (BR/EU): "0,5" → 0.5
+ *   - fraction string: "1/2" or "1 / 2" → 0.5
+ *   - unicode vulgar fraction: "½", "¼", "¾" → 0.5, 0.25, 0.75
+ *   - tilde/approx prefix: "~500", "aprox. 500" → 500
+ *   - null / undefined / anything else → 0 (never NaN or undefined)
+ *
+ * UNICODE_FRACTIONS: maps Unicode vulgar fraction characters to their decimal value.
+ * These appear in handwritten or OCR-scanned invoices.
  */
+const UNICODE_FRACTIONS = {
+  '½': 0.5, '⅓': 0.3333, '⅔': 0.6667, '¼': 0.25, '¾': 0.75,
+  '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875,
+  '⅕': 0.2, '⅖': 0.4, '⅗': 0.6, '⅘': 0.8,
+};
+
 export const parseSafeNumber = (v) => {
   if (v == null) return 0;
   if (typeof v === 'number') return isNaN(v) ? 0 : v;
-  const str = String(v).trim();
+  let str = String(v).trim();
+
+  // Strip non-numeric prefixes: "~500", "aprox. 500", "≈500", "< 500"
+  // Only strip leading symbols, not digits or decimal indicators
+  str = str.replace(/^[~≈<>≤≥aprox.\s]+/i, '').trim();
+
+  // Unicode vulgar fractions: "½", "¼", "¾" — check full string or leading char
+  for (const [char, val] of Object.entries(UNICODE_FRACTIONS)) {
+    if (str === char) return val;
+    // Mixed number: "1½" → 1 + 0.5 = 1.5
+    if (str.endsWith(char)) {
+      const whole = parseFloat(str.slice(0, -char.length));
+      if (!isNaN(whole)) return whole + val;
+    }
+  }
+
   // IMPORTANT: check for fraction BEFORE parseFloat.
   // parseFloat("1/2") returns 1 (reads "1", stops at "/") — not NaN.
-  // So we must detect the slash first.
   if (str.includes('/')) {
     const parts = str.split('/');
     if (parts.length === 2) {
-      const num = parseFloat(parts[0]);
-      const den = parseFloat(parts[1]);
+      const num = parseFloat(parts[0].trim());
+      const den = parseFloat(parts[1].trim());
       if (!isNaN(num) && !isNaN(den) && den !== 0) return Math.round((num / den) * 10000) / 10000;
     }
     return 0; // malformed fraction
   }
+
+  // Comma decimal: "0,5" → "0.5" (common in Brazilian/European invoices)
+  // Only if the string has exactly one comma and it looks like a decimal separator
+  // (i.e., not a thousands separator like "1.000,5")
+  if (str.includes(',') && !str.includes('.')) {
+    str = str.replace(',', '.');
+  } else if (str.includes(',') && str.includes('.')) {
+    // Thousands separator style: "1.000,50" → remove dots, replace comma
+    str = str.replace(/\./g, '').replace(',', '.');
+  }
+
   const n = parseFloat(str);
   return isNaN(n) ? 0 : n;
 };
