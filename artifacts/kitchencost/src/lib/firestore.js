@@ -513,7 +513,9 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     createdAt: serverTimestamp(),
   });
 
-  const ops = [];
+  const batch = writeBatch(db);
+  const label = `Produção: ${recipe.name} (${data.quantity} porç${data.quantity > 1 ? 'ões' : 'ão'})`;
+
   for (const ri of recipe.ingredients || []) {
     const ing = ingredients.find(i => i.id === ri.ingredientId);
     if (!ing) continue;
@@ -525,37 +527,73 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     const unitCost = ing.averageCost || ing.costPerUnit || 0;
     const newStock = Math.max(0, (ing.currentStock || 0) - qty);
 
-    ops.push(
-      updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ing.id), {
-        currentStock: newStock,
-        updatedAt: serverTimestamp(),
-      }),
-      addDoc(collection(db, 'restaurants', restaurantId, 'stock_movements'), {
-        type: 'out',
-        itemId: ing.id,
-        itemType: 'ingredient',
-        itemName: ing.name,
-        ingredientId: ing.id,
-        ingredientName: ing.name,
-        quantity: qty,
-        unit: ing.unit,
-        unitCost,
-        totalValue: qty * unitCost,
-        referenceType: 'production',
-        referenceId: prodRef.id,
-        restaurantId,
-        notes: `Produção: ${recipe.name} (${data.quantity} porç${data.quantity > 1 ? 'ões' : 'ão'})`,
-        createdAt: serverTimestamp(),
-      })
-    );
+    batch.update(doc(db, 'restaurants', restaurantId, 'ingredients', ing.id), {
+      currentStock: newStock,
+      updatedAt: serverTimestamp(),
+    });
+
+    const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
+    batch.set(movRef, {
+      type: 'out',
+      itemId: ing.id,
+      itemType: 'ingredient',
+      itemName: ing.name,
+      ingredientId: ing.id,
+      ingredientName: ing.name,
+      quantity: qty,
+      unit: ing.unit,
+      unitCost,
+      totalValue: qty * unitCost,
+      referenceType: 'production',
+      referenceId: prodRef.id,
+      restaurantId,
+      notes: label,
+      createdAt: serverTimestamp(),
+    });
   }
 
-  await Promise.all(ops);
+  await batch.commit();
   return { id: prodRef.id, recipeName: recipe.name, totalCost };
 };
 
 export const deleteProduction = async (restaurantId, productionId) => {
-  await deleteDoc(doc(db, 'restaurants', restaurantId, 'productions', productionId));
+  // 1. Read movements created by this production
+  const movQ = query(
+    collection(db, 'restaurants', restaurantId, 'stock_movements'),
+    where('referenceType', '==', 'production'),
+    where('referenceId', '==', productionId)
+  );
+  const movSnap = await getDocs(movQ);
+  const movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  // 2. For each movement, read the current ingredient stock to restore it
+  const snapshots = await Promise.all(
+    movements.map(mov => {
+      const ingId = mov.ingredientId || mov.itemId;
+      return ingId
+        ? getDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ingId))
+        : Promise.resolve(null);
+    })
+  );
+
+  // 3. Single atomic batch: restore stock + delete movements + delete production
+  const batch = writeBatch(db);
+
+  for (let i = 0; i < movements.length; i++) {
+    const mov = movements[i];
+    const snap = snapshots[i];
+    if (snap && snap.exists()) {
+      const currentStock = snap.data().currentStock || 0;
+      batch.update(doc(db, 'restaurants', restaurantId, 'ingredients', snap.id), {
+        currentStock: currentStock + (mov.quantity || 0),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    batch.delete(doc(db, 'restaurants', restaurantId, 'stock_movements', mov.id));
+  }
+
+  batch.delete(doc(db, 'restaurants', restaurantId, 'productions', productionId));
+  await batch.commit();
 };
 
 export const getProductionSummary = async (restaurantId, period = 'today') => {
@@ -844,11 +882,16 @@ export const createSale = async (restaurantId, data, menuItems) => {
       const variableTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
       cost = ingsCost / yieldQty + variableTotal;
     }
-  } else if (item.itemType === 'resale_product' && item.productId) {
-    const prodSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'resale_products', item.productId));
-    if (prodSnap.exists()) {
-      const prod = prodSnap.data();
-      cost = prod.averageCost || prod.cost || 0;
+  }
+
+  // For resale products, fetch snapshot once and reuse for both cost and stock deduction
+  let resaleProdSnap = null;
+  let resaleProdData = null;
+  if (item.itemType === 'resale_product' && item.productId) {
+    resaleProdSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'resale_products', item.productId));
+    if (resaleProdSnap.exists()) {
+      resaleProdData = resaleProdSnap.data();
+      cost = resaleProdData.averageCost || resaleProdData.cost || 0;
     }
   }
 
@@ -857,7 +900,10 @@ export const createSale = async (restaurantId, data, menuItems) => {
   const profitPerUnit = salePrice - cost;
   const margin = salePrice > 0 ? (profitPerUnit / salePrice) * 100 : 0;
 
-  const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'sales'), {
+  // Use a batch to write sale + resale stock deduction atomically
+  const batch = writeBatch(db);
+  const saleRef = doc(collection(db, 'restaurants', restaurantId, 'sales'));
+  batch.set(saleRef, {
     itemId: item.id,
     itemName: item.name,
     itemType: item.itemType || 'recipe',
@@ -877,7 +923,37 @@ export const createSale = async (restaurantId, data, menuItems) => {
     notes: data.notes || '',
     createdAt: serverTimestamp(),
   });
-  return { id: ref.id, profit, revenue };
+
+  // Deduct stock for resale products (ingredients are pre-deducted via production)
+  if (resaleProdData) {
+    const currentQty = resaleProdData.stockQuantity || 0;
+    const newQty = Math.max(0, currentQty - data.quantitySold);
+    batch.update(doc(db, 'restaurants', restaurantId, 'resale_products', item.productId), {
+      stockQuantity: newQty,
+      updatedAt: serverTimestamp(),
+    });
+    const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
+    batch.set(movRef, {
+      type: 'out',
+      itemId: item.productId,
+      itemType: 'resale_product',
+      itemName: item.name,
+      resaleProductId: item.productId,
+      ingredientName: item.name,
+      quantity: data.quantitySold,
+      unit: resaleProdData.unit || 'uni',
+      unitCost: cost,
+      totalValue: data.quantitySold * cost,
+      referenceType: 'sale',
+      referenceId: saleRef.id,
+      restaurantId,
+      notes: `Venda: ${item.name} (${data.quantitySold} un.)`,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
+  return { id: saleRef.id, profit, revenue };
 };
 
 export const deleteSale = async (restaurantId, saleId) => {

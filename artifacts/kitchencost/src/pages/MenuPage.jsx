@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
-import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getRecipes, getResaleProducts, getMenuCategories, createMenuCategory } from '../lib/firestore';
-import { formatCurrency, formatNumber } from '../lib/utils';
+import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getRecipes, getResaleProducts, getMenuCategories, createMenuCategory, getIngredients } from '../lib/firestore';
+import { formatCurrency, formatNumber, canConvert, convertUnits } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,7 @@ const MenuPage = () => {
   const [menuItems, setMenuItems] = useState([]);
   const [recipes, setRecipes] = useState([]);
   const [resaleProducts, setResaleProducts] = useState([]);
+  const [ingredients, setIngredients] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -34,13 +35,14 @@ const MenuPage = () => {
 
   const loadData = async () => {
     try {
-      const [items, recs, resale, cats] = await Promise.all([
+      const [items, recs, resale, ings, cats] = await Promise.all([
         getMenuItems(restaurant.restaurantId),
         getRecipes(restaurant.restaurantId),
         getResaleProducts(restaurant.restaurantId),
+        getIngredients(restaurant.restaurantId),
         getMenuCategories(restaurant.restaurantId),
       ]);
-      setMenuItems(items); setRecipes(recs); setResaleProducts(resale); setCategories(cats);
+      setMenuItems(items); setRecipes(recs); setResaleProducts(resale); setIngredients(ings); setCategories(cats);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar cardápio', variant: 'destructive' }); }
     finally { setLoading(false); }
   };
@@ -86,7 +88,21 @@ const MenuPage = () => {
   const getItemCost = (item) => {
     if (item.itemType === 'recipe') {
       const recipe = recipes.find(r => r.id === item.recipeId);
-      return recipe?.costPerPortion || item.cost || 0;
+      if (!recipe) return item.cost || 0;
+      // Live cost from current ingredient prices (not cached costPerPortion)
+      const yieldQty = recipe.yieldQuantity || 1;
+      let ingsCost = 0;
+      for (const ri of recipe.ingredients || []) {
+        const ing = ingredients.find(i => i.id === ri.ingredientId);
+        if (!ing) continue;
+        let qty = ri.quantity || 0;
+        if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
+          qty = convertUnits(qty, ri.unit, ing.unit);
+        }
+        ingsCost += qty * (ing.averageCost || ing.costPerUnit || 0);
+      }
+      const variableTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
+      return ingsCost / yieldQty + variableTotal;
     } else {
       const product = resaleProducts.find(p => p.id === item.productId);
       return product?.averageCost || product?.cost || item.cost || 0;
@@ -109,8 +125,8 @@ const MenuPage = () => {
     try {
       let cost = 0;
       if (formData.itemType === 'recipe') {
-        const recipe = recipes.find(r => r.id === formData.recipeId);
-        cost = recipe?.costPerPortion || 0;
+        // Store live cost (same calculation as getItemCost / liveRecipeCosts)
+        cost = getItemCost({ itemType: 'recipe', recipeId: formData.recipeId });
       } else {
         const product = resaleProducts.find(p => p.id === formData.productId);
         cost = product?.averageCost || product?.cost || 0;

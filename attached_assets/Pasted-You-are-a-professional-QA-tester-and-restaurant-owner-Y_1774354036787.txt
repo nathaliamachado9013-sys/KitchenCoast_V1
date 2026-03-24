@@ -1,0 +1,277 @@
+You are a professional QA tester and restaurant owner.
+
+Your task is to simulate REAL usage of the KitchenCost SaaS from start to finish and identify any bugs, inconsistencies, UX problems, or logical errors.
+
+You must think like a real business owner, not a developer.
+
+Test the system in two complete scenarios:
+
+==================================================
+SCENARIO 1 — PIZZERIA (SIMPLE OPERATION)
+==================================================
+
+Context:
+You own a small pizzeria starting from scratch.
+
+Goal:
+Validate the system for a focused menu with few ingredients and high repetition.
+
+--------------------------------------------------
+Step 1 — Initial Setup
+--------------------------------------------------
+
+- Configure currency (EUR)
+- Add basic fixed costs (rent, energy, salaries)
+- Create supplier: "Makro"
+
+Expected:
+- Settings save correctly
+- Currency is consistent everywhere
+
+--------------------------------------------------
+Step 2 — Import First Invoice
+--------------------------------------------------
+
+Simulate a realistic invoice with:
+
+- Flour (25 Kg)
+- Tomato sauce (5 L)
+- Mozzarella (10 Kg)
+- Olive oil (3 L)
+
+Include at least one tricky line:
+- "2 caixas de 12 pizzas bases"
+- "1/2 Kg fermento"
+
+Test:
+
+- AI extraction (if used)
+- Manual correction
+- Unit conversion
+- Review step
+- Conversion confirmation UI
+
+Expected:
+
+- All quantities converted correctly
+- No unresolved conversions allowed before import
+- Invoice is not stuck in review
+- No partial save
+
+--------------------------------------------------
+Step 3 — Validate Stock
+--------------------------------------------------
+
+Check:
+
+- All items entered stock
+- Units are correct (Kg, L, g, uni)
+- Quantities match conversion
+- Cost per unit is correct
+
+--------------------------------------------------
+Step 4 — Create Recipe (Pizza Margherita)
+--------------------------------------------------
+
+Ingredients:
+- Flour
+- Tomato sauce
+- Mozzarella
+- Olive oil
+
+Set:
+- quantities
+- margin = 70%
+
+Expected:
+
+- cost calculated correctly
+- price suggestion generated
+- unit conversions applied correctly
+
+--------------------------------------------------
+Step 5 — Menu
+--------------------------------------------------
+
+- Add pizza to menu
+- Check:
+  - ideal price
+  - actual price
+  - "Use suggested price" button
+
+Expected:
+
+- price suggestion visible
+- profit calculated correctly
+
+--------------------------------------------------
+Step 6 — Sales Simulation
+--------------------------------------------------
+
+- Sell 5 pizzas
+
+Expected:
+
+- cost_at_time_of_sale frozen
+- profit calculated correctly
+- no change in past sales after cost changes
+
+--------------------------------------------------
+Step 7 — Delete Invoice
+--------------------------------------------------
+
+- Delete the imported invoice
+
+Expected:
+
+- stock returns to previous state
+- supplier totals updated
+- no orphan data
+- no broken state
+
+==================================================
+SCENARIO 2 — FULL RESTAURANT (COMPLEX OPERATION)
+==================================================
+
+Context:
+You run a restaurant with:
+
+- main dishes
+- desserts
+- beverages (resale)
+
+--------------------------------------------------
+Step 1 — Import Mixed Invoice
+--------------------------------------------------
+
+Include:
+
+Ingredients:
+- Potatoes (Kg)
+- Meat (Kg)
+- Herbs (30g packs)
+- Milk (L)
+
+Resale:
+- Coca-Cola (24 units)
+- Wine bottles
+
+Edge cases:
+- "3 sacos de 2.5 Kg"
+- "12x33cl"
+- "1/2 Kg"
+- "4 packs de 30g"
+
+Expected:
+
+- all conversions correct
+- resale items separated correctly
+- ignored items handled correctly
+
+--------------------------------------------------
+Step 2 — Validate Supplier Page
+--------------------------------------------------
+
+Check:
+
+- total spent matches invoice
+- invoice count correct
+- invoice list sorted correctly
+
+--------------------------------------------------
+Step 3 — Validate Stock
+--------------------------------------------------
+
+Check:
+
+- inventory value is correct
+- movements are correct (only "in" from invoice)
+- no "out" created incorrectly
+
+--------------------------------------------------
+Step 4 — Create Multiple Recipes
+--------------------------------------------------
+
+Create:
+
+- Main dish
+- Dessert
+
+Check:
+
+- cost reflects ingredient cost
+- units converted correctly
+- margin calculation correct
+
+--------------------------------------------------
+Step 5 — Menu + Pricing
+--------------------------------------------------
+
+Check:
+
+- ideal price from recipe
+- actual price editable
+- suggestion works correctly
+
+--------------------------------------------------
+Step 6 — Production
+--------------------------------------------------
+
+- Produce 10 units of a recipe
+
+Expected:
+
+- ingredients deducted from stock
+- correct movement type ("out")
+
+--------------------------------------------------
+Step 7 — Sales (Mixed)
+--------------------------------------------------
+
+Sell:
+
+- recipe items
+- resale items
+
+Expected:
+
+- stock decreases correctly
+- resale reduces stock directly
+- recipe uses frozen cost
+
+--------------------------------------------------
+Step 8 — Error Testing
+--------------------------------------------------
+
+Try to break the system:
+
+- import invoice with unresolved conversion
+- input invalid units
+- delete partially processed invoice
+- simulate duplicate invoice
+
+Expected:
+
+- system blocks invalid operations
+- no inconsistent data created
+
+==================================================
+FINAL QA REPORT
+==================================================
+
+At the end, provide a structured report:
+
+1. Bugs found (critical, medium, low)
+2. Data inconsistencies (if any)
+3. UX issues
+4. Edge cases not handled
+5. Trust level of system:
+   - Can a real restaurant rely on this system? (yes/no and why)
+
+IMPORTANT:
+- Be strict
+- Assume real money is at stake
+- Do not ignore small inconsistencies
+- Do not assume behavior is correct — verify it
+
+Your job is to break the system and report truthfully.

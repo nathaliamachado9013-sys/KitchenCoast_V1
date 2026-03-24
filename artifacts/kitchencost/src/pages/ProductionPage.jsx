@@ -48,7 +48,7 @@ const ProductionPage = () => {
         for (const ri of selectedRecipe.ingredients || []) {
           const ing = ingredients.find(i => i.id === ri.ingredientId);
           if (!ing) continue;
-          ingsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
+          ingsCost += (ri.quantity || 0) * (ing.averageCost || ing.costPerUnit || 0);
         }
         const yieldQty = selectedRecipe.yieldQuantity || 1;
         const variableTotal = (selectedRecipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
@@ -71,7 +71,7 @@ const ProductionPage = () => {
   };
 
   const handleDelete = async (item) => {
-    if (!window.confirm(`Excluir produção de "${item.recipeName}"? O estoque NÃO será restaurado.`)) return;
+    if (!window.confirm(`Excluir produção de "${item.recipeName}"? Os ingredientes consumidos serão devolvidos ao estoque.`)) return;
     try { await deleteProduction(restaurant.restaurantId, item.id); toast({ title: 'Produção excluída!' }); loadData(); }
     catch { toast({ title: 'Erro', description: 'Erro ao excluir', variant: 'destructive' }); }
   };

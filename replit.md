@@ -4,6 +4,17 @@
 
 Restaurant cost management SaaS built on Firebase (Auth, Firestore, Hosting, App Check, Gemini AI) + Cloudinary for file storage. pnpm workspace monorepo.
 
+## QA Audit — Bugs Fixed (March 2026)
+
+| ID | Bug | Fix |
+|---|---|---|
+| B1 | RecipesPage pricing modal ignored unit conversion (200g × R$2.50/Kg = R$500 instead of R$0.50) | Added `canConvert/convertUnits` to `pricing` useMemo — now matches `liveRecipeCosts` card view |
+| B2 | `createSale` for resale products didn't deduct `stockQuantity` or create a stock movement | Sale now uses WriteBatch: sale doc + `resale_products` update + `stock_movements` "out" record |
+| B3 | `registerProduction` used `Promise.all` (non-atomic) for multi-ingredient stock writes | Converted to `WriteBatch` — all writes are all-or-nothing |
+| B4 | `deleteProduction` only deleted the production doc — stock permanently consumed, movements orphaned | Now: reads movements with `referenceType='production'`, restores ingredient stock, deletes movements, all in one WriteBatch |
+| M1 | `ProductionPage` estimatedCost preview used `costPerUnit` only | Changed to `averageCost \|\| costPerUnit` — matches `registerProduction` actual calculation |
+| M3 | `MenuPage` `getItemCost` used cached `recipe.costPerPortion` (stale after ingredient price changes) | Now loads `ingredients` and computes live cost with unit conversion — same logic as `liveRecipeCosts` |
+
 ## Stack
 
 - **Monorepo**: pnpm workspaces
