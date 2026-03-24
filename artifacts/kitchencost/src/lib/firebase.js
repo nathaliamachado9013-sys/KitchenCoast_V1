@@ -18,9 +18,9 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 // ----- APP CHECK -----
 // DEV = Vite dev server (Replit preview). In production this block is excluded.
 // The debug token MUST be registered in Firebase Console → App Check → Debug tokens.
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && import.meta.env.VITE_FIREBASE_APP_CHECK_DEBUG_TOKEN) {
   // @ts-ignore
-  self.FIREBASE_APPCHECK_DEBUG_TOKEN = '0271b3e6-775e-4420-bbde-47c6e4140beb';
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = import.meta.env.VITE_FIREBASE_APP_CHECK_DEBUG_TOKEN;
 }
 
 // Wrap in try/catch: on HMR the app instance is reused (getApp()),

@@ -35,8 +35,8 @@ artifacts/
 ## Firebase Config
 
 - Project: `kitchencost-e1a2e`
-- App Check debug token: `0271b3e6-775e-4420-bbde-47c6e4140beb`
-- API Key: `AIzaSyAdhjGfWZmHIvYkeqBt21f7lOB32Iqxjd4`
+- App Check debug token: stored in Replit Secrets (`VITE_FIREBASE_APP_CHECK_DEBUG_TOKEN`)
+- API Key: stored in Replit Secrets (`VITE_FIREBASE_API_KEY`)
 
 ## Cloudinary Config
 
