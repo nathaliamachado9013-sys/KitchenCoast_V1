@@ -101,7 +101,18 @@ const SettingsPage = () => {
     }
     setDeleting(true);
     try {
-      await deleteAccount({ email: deleteEmail, password: deletePassword });
+      const { cloudinaryDeleted, cloudinaryFileCount, cloudinaryOrphans } =
+        await deleteAccount({ email: deleteEmail, password: deletePassword });
+
+      if (!cloudinaryDeleted && cloudinaryFileCount > 0) {
+        // Firestore + Auth deleted; Cloudinary files remain (API server not reachable)
+        console.warn('[KitchenCost] Orphaned Cloudinary files:', cloudinaryOrphans);
+        toast({
+          title: 'Conta excluída',
+          description: `${cloudinaryFileCount} ficheiro(s) de comprovantes não puderam ser removidos do Cloudinary (servidor de API não acessível). Podem ser excluídos manualmente no painel Cloudinary na pasta restaurants/${restaurant?.restaurantId || restaurant?.id}.`,
+          variant: 'default',
+        });
+      }
       navigate('/login');
     } catch (err) {
       const msg = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'

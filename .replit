@@ -24,3 +24,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+CLOUDINARY_CLOUD_NAME = "djq3q2xat"
+CLOUDINARY_API_KEY = "673177378989315"
+CLOUDINARY_API_SECRET = "lNTdz4iZWY4UQLjKK5wFRdJIA2M"

@@ -99,13 +99,19 @@ export const AuthProvider = ({ children }) => {
     setMemberRole(null);
   };
 
-  // Reauthenticate, delete all tenant data from Firestore, then delete the Firebase Auth user.
+  /**
+   * Reauthenticates, deletes all Firestore tenant data, attempts to delete Cloudinary
+   * files via the API server, then deletes the Firebase Auth account.
+   *
+   * Returns { cloudinaryDeleted: boolean, cloudinaryFileCount: number, cloudinaryOrphans: string[] }
+   * so the caller can inform the user about the cleanup status.
+   */
   const deleteAccount = async ({ email, password } = {}) => {
     if (!user) throw new Error('Utilizador não autenticado.');
 
     const providerId = user.providerData?.[0]?.providerId;
 
-    // Reauthenticate before any destructive action
+    // Step 1 — Reauthenticate before any destructive action
     if (providerId === 'google.com') {
       await reauthenticateWithPopup(user, googleProvider);
     } else {
@@ -114,19 +120,55 @@ export const AuthProvider = ({ children }) => {
       await reauthenticateWithCredential(user, credential);
     }
 
-    // Delete all Firestore tenant data
+    // Step 2 — Delete all Firestore tenant data (returns collected Cloudinary publicIds)
     const rid = restaurant?.restaurantId || restaurant?.id;
+    let cloudinaryPublicIds = [];
     if (rid) {
-      await deleteAllTenantData(rid, user.uid);
+      const result = await deleteAllTenantData(rid, user.uid);
+      cloudinaryPublicIds = result?.cloudinaryPublicIds || [];
     }
 
-    // Delete Firebase Auth account
+    // Step 3 — Attempt to delete Cloudinary assets via the API server.
+    // In dev: proxied through Vite at /internal-api → localhost:8080.
+    // In production: set VITE_API_SERVER_URL to the deployed API server base URL.
+    let cloudinaryDeleted = false;
+    const cloudinaryOrphans = [...cloudinaryPublicIds];
+    if (rid && cloudinaryPublicIds.length > 0) {
+      try {
+        const apiBase = import.meta.env.VITE_API_SERVER_URL || '';
+        const url = apiBase
+          ? `${apiBase}/api/cloudinary/tenant/${rid}`
+          : `/internal-api/api/cloudinary/tenant/${rid}`;
+        const res = await fetch(url, { method: 'DELETE', headers: { 'Content-Type': 'application/json' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok) {
+            cloudinaryDeleted = true;
+            cloudinaryOrphans.length = 0;
+          } else {
+            console.warn('[KitchenCost] Cloudinary deletion partial:', data);
+          }
+        } else {
+          console.warn('[KitchenCost] Cloudinary API server responded with:', res.status);
+        }
+      } catch (e) {
+        // API server not accessible (e.g. production without deployed API server)
+        console.warn('[KitchenCost] Cloudinary cleanup skipped — API server not reachable:', e.message);
+      }
+    } else {
+      // No invoice files to clean up
+      cloudinaryDeleted = true;
+    }
+
+    // Step 4 — Delete Firebase Auth account
     await deleteUser(user);
 
-    // Clear local state
+    // Step 5 — Clear local state
     setUser(null);
     setRestaurant(null);
     setMemberRole(null);
+
+    return { cloudinaryDeleted, cloudinaryFileCount: cloudinaryPublicIds.length, cloudinaryOrphans };
   };
 
   const updateRestaurant = (data) => {

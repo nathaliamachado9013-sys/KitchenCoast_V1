@@ -41,11 +41,13 @@ router.delete("/cloudinary/tenant/:tenantId", async (req, res) => {
   const results: { type: string; deleted: Record<string, string> | null; error: string | null }[] = [];
 
   for (const resourceType of ["image", "raw"] as const) {
-    const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/${resourceType}/upload?prefix=${encodeURIComponent(prefix)}&all=true`;
+    // Prefix-based deletion: removes all resources whose public_id starts with prefix.
+    // Note: do NOT combine with all=true (they are mutually exclusive in Cloudinary API).
+    const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/${resourceType}/upload?prefix=${encodeURIComponent(prefix)}`;
     try {
       const response = await fetch(url, { method: "DELETE", headers });
       if (response.ok) {
-        const data = (await response.json()) as { deleted: Record<string, string> };
+        const data = (await response.json()) as { deleted: Record<string, string>; deleted_counts?: unknown };
         results.push({ type: resourceType, deleted: data.deleted ?? {}, error: null });
       } else {
         const err = (await response.json().catch(() => ({ error: { message: "Unknown error" } }))) as { error: { message: string } };

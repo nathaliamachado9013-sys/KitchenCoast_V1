@@ -1470,7 +1470,27 @@ const RESTAURANT_SUBCOLLECTIONS = [
   'settings', 'invoices',
 ];
 
+/**
+ * Deletes all Firestore data for a tenant.
+ * Collects Cloudinary publicIds from invoices BEFORE deleting so the caller
+ * can attempt to clean up Cloudinary assets afterward.
+ * Returns { cloudinaryPublicIds: string[] }
+ */
 export const deleteAllTenantData = async (restaurantId, userId) => {
+  // Collect Cloudinary publicIds from invoices before we delete them
+  const cloudinaryPublicIds = [];
+  try {
+    const invoiceSnap = await getDocs(
+      collection(db, 'restaurants', restaurantId, 'invoices'),
+    );
+    invoiceSnap.docs.forEach(d => {
+      const publicId = d.data()?.attachment?.publicId;
+      if (publicId) cloudinaryPublicIds.push(publicId);
+    });
+  } catch (e) {
+    console.warn('Could not collect Cloudinary publicIds before deletion:', e.message);
+  }
+
   // Delete every subcollection in chunks of 450 docs each
   for (const sub of RESTAURANT_SUBCOLLECTIONS) {
     const snap = await getDocs(collection(db, 'restaurants', restaurantId, sub));
@@ -1489,4 +1509,6 @@ export const deleteAllTenantData = async (restaurantId, userId) => {
   if (userId) {
     try { await deleteDoc(doc(db, 'users', userId)); } catch { /* ignore if not present */ }
   }
+
+  return { cloudinaryPublicIds };
 };

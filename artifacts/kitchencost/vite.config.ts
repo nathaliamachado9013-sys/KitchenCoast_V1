@@ -62,6 +62,14 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      // Proxy /internal-api/* → API server (localhost:8080) in dev mode.
+      // In production (Firebase Hosting) set VITE_API_SERVER_URL instead.
+      '/internal-api': {
+        target: 'http://localhost:8080',
+        rewrite: (p) => p.replace(/^\/internal-api/, ''),
+      },
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
