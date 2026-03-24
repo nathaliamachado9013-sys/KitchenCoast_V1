@@ -110,7 +110,7 @@ const SalesPage = () => {
                   <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>Nenhuma venda registrada</p>
                 </td></tr>
               ) : sales.map(sale => (
-                <tr key={sale.id} className="border-t border-border/50 hover:bg-muted/20">
+                <tr key={sale.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                   <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(sale.createdAt)}</td>
                   <td className="px-4 py-3">
                     <div className="font-medium">{sale.itemName}</div>

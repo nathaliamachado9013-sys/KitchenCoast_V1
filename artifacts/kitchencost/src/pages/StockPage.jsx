@@ -168,7 +168,7 @@ const StockPage = () => {
                     const st = getStockStatus(item);
                     const avgCost = item.averageCost || item.costPerUnit || 0;
                     return (
-                      <tr key={`ing-${item.id}`} className="border-t border-border/50 hover:bg-muted/20">
+                      <tr key={`ing-${item.id}`} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                         <td className="px-4 py-3 font-medium">{item.name}</td>
                         <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">Ingrediente</span></td>
                         <td className="px-4 py-3">{formatNumber(item.currentStock || 0)} {item.unit}</td>
@@ -190,7 +190,7 @@ const StockPage = () => {
                         ? { label: 'Baixo', cls: 'bg-amber-100 text-amber-700' }
                         : { label: 'OK', cls: 'bg-green-100 text-green-700' };
                     return (
-                      <tr key={`res-${item.id}`} className="border-t border-border/50 hover:bg-muted/20">
+                      <tr key={`res-${item.id}`} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                         <td className="px-4 py-3 font-medium">{item.name}</td>
                         <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs font-medium bg-violet-50 text-violet-700">Revenda</span></td>
                         <td className="px-4 py-3">{formatNumber(qty)} {item.unit || 'un'}</td>

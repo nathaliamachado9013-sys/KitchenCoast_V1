@@ -185,7 +185,7 @@ const MenuPage = () => {
                       const cost = getItemCost(item);
                       const margin = getMargin(item);
                       return (
-                        <tr key={item.id} className="border-t border-border/50 hover:bg-muted/20">
+                        <tr key={item.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                           <td className="px-4 py-3">
                             <div className="font-medium">{item.name}</div>
                             {item.description && <div className="text-xs text-muted-foreground truncate max-w-48">{item.description}</div>}

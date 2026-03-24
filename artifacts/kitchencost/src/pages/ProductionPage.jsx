@@ -113,7 +113,7 @@ const ProductionPage = () => {
                   <ChefHat className="w-8 h-8 mx-auto mb-2 opacity-30" /><p>Nenhuma produção registrada</p>
                 </td></tr>
               ) : productions.map(p => (
-                <tr key={p.id} className="border-t border-border/50 hover:bg-muted/20">
+                <tr key={p.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                   <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(p.createdAt)}</td>
                   <td className="px-4 py-3 font-medium">{p.recipeName}</td>
                   <td className="px-4 py-3">{formatNumber(p.quantity, 1)}×</td>

@@ -1,0 +1,150 @@
+You are a senior full-stack engineer working on KitchenCost.
+
+Implement the following corrections and improvements without redesigning the whole SaaS.
+
+PRIORITY:
+1. account deletion
+2. data protection / tenant isolation
+3. invoice flow fixes
+4. inherited fields on created ingredients
+5. hover and usability improvements
+
+--------------------------------------------------
+1. ACCOUNT DELETION (CRITICAL)
+--------------------------------------------------
+
+Add a red button in Settings:
+"Excluir conta"
+
+Behavior:
+- show a strong irreversible warning
+- explain that all company data and files will be permanently deleted
+- require user to type email and password before proceeding
+- reauthenticate the user before deletion
+
+When confirmed, delete:
+- Firebase Auth user
+- all tenant/company data from Firestore
+- all invoice attachments and tenant files from Cloudinary
+- then sign out and redirect to login
+
+Important:
+- deletion must be safe and deliberate
+- use a secure backend/admin path if needed for destructive deletion
+- do not leave orphan files or orphan Firestore documents
+
+--------------------------------------------------
+2. DATA PROTECTION / TENANT ISOLATION
+--------------------------------------------------
+
+Harden data protection for the SaaS.
+
+Requirements:
+- every business document must have tenant_id
+- every query must filter by tenant_id
+- Firestore security rules must ensure users can only access their own tenant/company data
+- no cross-tenant reads or writes allowed
+
+For Cloudinary:
+- store tenant files using tenant-scoped folder/public_id structure, e.g.
+  kitchencost/{tenant_id}/invoices/{invoice_id}
+- ensure attachments are always linked to the correct tenant in Firestore
+
+Also:
+- sanitize data before saving to Firestore
+- never write undefined values
+- avoid exposing sensitive internal IDs unnecessarily in UI
+
+--------------------------------------------------
+3. INVOICE FLOW FIXES
+--------------------------------------------------
+
+Fix the invoice import flow completely.
+
+Problems already identified:
+- image import and PDF import behave inconsistently
+- some items are created but stock is not always updated
+- some invoices remain stuck in "review"
+- linked items may not always enter stock correctly
+- ignored items do not clearly show imported value vs ignored value
+- duplicate invoices must be detected
+
+Required behavior:
+For every invoice import, regardless of image or PDF:
+1. normalize parsed items into the same structure
+2. validate all lines
+3. detect duplicate invoice using supplier + invoice number + date + total
+4. create/link items
+5. create stock entry movements
+6. update stock quantities
+7. update weighted average cost
+8. finalize invoice status correctly
+
+Use atomic behavior:
+- either everything succeeds
+- or nothing is committed
+
+Add clear values:
+- total invoice value
+- imported value
+- ignored value
+- discrepancy
+
+Also add a user hint on upload screen:
+"For better reading, prefer original PDF or well-scanned, clear images without shadows or cuts."
+
+--------------------------------------------------
+4. INHERITED FIELDS WHEN CREATING INGREDIENTS
+--------------------------------------------------
+
+When a new ingredient is created from invoice import, automatically inherit:
+- supplier_id from invoice supplier
+- normalized unit
+- latest cost / unit price
+- optional default category if available
+
+Do not create incomplete ingredient records with:
+- missing supplier
+- empty important fields
+- wrong critical status when stock was imported
+
+Fix status logic:
+- if stock > 0, item should not appear as critical unless minimum stock rule really requires it
+
+--------------------------------------------------
+5. HOVER / UX IMPROVEMENT
+--------------------------------------------------
+
+Improve row hover and selection visibility in lists/tables.
+
+Current issue:
+hover is too weak and makes edit/delete selection unclear.
+
+Required behavior:
+- stronger row hover background
+- full-row highlight
+- pointer cursor
+- clear selected/active state
+- keep visual consistency across ingredient, supplier, stock, and invoice lists
+
+--------------------------------------------------
+6. DO NOT CHANGE
+--------------------------------------------------
+
+Do not redesign the whole UI.
+Do not replace Firebase Auth.
+Do not remove Cloudinary.
+Do not break existing working features.
+
+--------------------------------------------------
+EXPECTED RESULT
+--------------------------------------------------
+
+After implementation:
+- users can delete account safely and irreversibly with reauthentication
+- tenant/company data is protected correctly
+- invoice flow is reliable for image and PDF
+- created ingredients inherit correct supplier and metadata
+- stock is updated consistently
+- duplicate invoices are blocked/warned
+- hover and selection are much clearer

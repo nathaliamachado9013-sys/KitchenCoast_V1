@@ -7,9 +7,13 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  EmailAuthProvider,
+  deleteUser,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
-import { getRestaurantByUserId, getMember } from '../lib/firestore';
+import { getRestaurantByUserId, getMember, deleteAllTenantData } from '../lib/firestore';
 import { AuthContext } from './authContext';
 
 export const AuthProvider = ({ children }) => {
@@ -95,6 +99,36 @@ export const AuthProvider = ({ children }) => {
     setMemberRole(null);
   };
 
+  // Reauthenticate, delete all tenant data from Firestore, then delete the Firebase Auth user.
+  const deleteAccount = async ({ email, password } = {}) => {
+    if (!user) throw new Error('Utilizador não autenticado.');
+
+    const providerId = user.providerData?.[0]?.providerId;
+
+    // Reauthenticate before any destructive action
+    if (providerId === 'google.com') {
+      await reauthenticateWithPopup(user, googleProvider);
+    } else {
+      if (!email || !password) throw new Error('Email e senha são obrigatórios para confirmar a exclusão.');
+      const credential = EmailAuthProvider.credential(email, password);
+      await reauthenticateWithCredential(user, credential);
+    }
+
+    // Delete all Firestore tenant data
+    const rid = restaurant?.restaurantId || restaurant?.id;
+    if (rid) {
+      await deleteAllTenantData(rid, user.uid);
+    }
+
+    // Delete Firebase Auth account
+    await deleteUser(user);
+
+    // Clear local state
+    setUser(null);
+    setRestaurant(null);
+    setMemberRole(null);
+  };
+
   const updateRestaurant = (data) => {
     setRestaurant(prev => ({ ...prev, ...data }));
   };
@@ -119,6 +153,7 @@ export const AuthProvider = ({ children }) => {
       registerWithEmail,
       loginWithGoogle,
       logout,
+      deleteAccount,
       updateRestaurant,
       refreshRestaurant,
     }}>

@@ -1440,3 +1440,33 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
     });
   }
 };
+
+// ─── ACCOUNT / TENANT DELETION ────────────────────────────────────────────────
+// Deletes all Firestore data for a tenant. Called before deleting the Auth user.
+const RESTAURANT_SUBCOLLECTIONS = [
+  'members', 'ingredients', 'suppliers', 'recipes',
+  'stock_movements', 'productions', 'sales',
+  'menu_items', 'menu_categories', 'resale_products',
+  'settings', 'invoices',
+];
+
+export const deleteAllTenantData = async (restaurantId, userId) => {
+  // Delete every subcollection in chunks of 450 docs each
+  for (const sub of RESTAURANT_SUBCOLLECTIONS) {
+    const snap = await getDocs(collection(db, 'restaurants', restaurantId, sub));
+    const docs = snap.docs;
+    for (let i = 0; i < docs.length; i += 450) {
+      const batch = writeBatch(db);
+      docs.slice(i, i + 450).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }
+
+  // Delete restaurant root document
+  await deleteDoc(doc(db, 'restaurants', restaurantId));
+
+  // Delete user profile document if present
+  if (userId) {
+    try { await deleteDoc(doc(db, 'users', userId)); } catch { /* ignore if not present */ }
+  }
+};

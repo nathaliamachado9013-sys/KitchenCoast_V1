@@ -1,0 +1,196 @@
+1. Excluir conta
+
+Concordo com você. O comportamento certo é:
+
+botão vermelho em Configurações
+
+texto claro: exclusão irreversível
+
+pedir email + senha
+
+reautenticar o usuário
+
+apagar:
+
+usuário no Firebase Auth
+
+dados do tenant no Firestore
+
+arquivos da empresa no Cloudinary
+
+no fim, encerrar sessão e redirecionar
+
+Isso precisa ser tratado como operação crítica.
+
+2. Senha / login
+
+Correto: se está usando Firebase Auth, você não precisa implementar hash manual com bcrypt agora. O mais importante passa a ser:
+
+reautenticação para ações críticas
+
+política de senha forte
+
+regras de acesso corretas
+
+3. Proteção de dados
+
+Sim, isso é importante e deve ser implementado agora, principalmente porque você já está com:
+
+multi-tenant
+
+notas fiscais
+
+fornecedores
+
+arquivos
+
+dados de negócio
+
+A proteção de dados não fica “só no Cloudinary” nem “só no SaaS”. Ela fica em toda a arquitetura.
+
+4. Hover
+
+Sim, deve ser implementado.
+
+5. Fluxo da nota
+
+Sim, deve ser corrigido.
+
+E sobre sua pergunta: sim, nota escaneada normalmente ajuda.
+Em geral, uma imagem escaneada ou um PDF nítido costuma dar melhor resultado que:
+
+foto torta
+
+sombra
+
+baixa luz
+
+papel amassado
+
+fundo poluído
+
+Então vale mostrar um aviso tipo:
+
+“Para melhor leitura, prefira PDF original ou imagem escaneada, bem iluminada e sem cortes.”
+
+Isso é verdadeiro e útil.
+
+6. Campos herdados
+
+Sim, isso é muito importante e otimiza muito o SaaS.
+
+Solução adequada para proteção de dados no KitchenCost
+No Firestore
+
+Você precisa garantir:
+
+cada documento tem tenant_id
+
+cada query filtra por tenant_id
+
+regras do Firestore impedem acesso fora da empresa do usuário
+
+Regra prática
+
+O usuário autenticado só pode:
+
+ler dados da própria empresa
+
+escrever dados da própria empresa
+
+Nada de acesso cruzado.
+
+No Cloudinary
+
+Você deve organizar os arquivos por tenant.
+
+Exemplo:
+
+kitchencost/{tenant_id}/invoices/{invoice_id}
+
+Ou:
+
+restaurants/{tenant_id}/invoices/
+
+E salvar no Firestore:
+
+tenant_id
+
+file_url
+
+public_id
+
+Assim, quando excluir a conta, dá para apagar tudo daquela empresa.
+
+No app / SaaS
+
+Você precisa ter:
+
+política de mínimo acesso
+
+reautenticação para ação crítica
+
+logs de erro sem expor dados sensíveis
+
+não salvar campos undefined
+
+não expor URLs ou IDs de outros tenants
+
+Exclusão de conta segura
+
+Fluxo ideal:
+
+usuário clica em Excluir conta
+
+sistema mostra aviso forte
+
+usuário digita:
+
+email
+
+senha
+
+sistema reautentica
+
+sistema apaga:
+
+documentos Firestore do tenant
+
+notas
+
+ingredientes
+
+estoque
+
+receitas
+
+vendas
+
+fornecedores
+
+arquivos Cloudinary daquele tenant
+
+usuário do Firebase Auth
+
+sessão é encerrada
+
+Muito importante
+
+Essa exclusão deve ser feita do lado seguro, não só no frontend.
+
+O que eu implementaria agora, por prioridade
+Prioridade alta
+
+corrigir fluxo da nota
+
+corrigir campos herdados
+
+regras de proteção de dados / tenant
+
+exclusão de conta
+
+Prioridade média
+
+hover
+
+aviso sobre qualidade da nota

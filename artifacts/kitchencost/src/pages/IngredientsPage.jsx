@@ -136,7 +136,7 @@ const IngredientsPage = () => {
                 const st = getStockStatus(item);
                 const supplier = suppliers.find(s => s.id === item.supplierId);
                 return (
-                  <tr key={item.id} className="border-t border-border/50 hover:bg-muted/20">
+                  <tr key={item.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                     <td className="px-4 py-3 font-medium">{item.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{item.category || '-'}</td>
                     <td className="px-4 py-3">{formatCurrency(item.costPerUnit, currency)}/{item.unit}</td>

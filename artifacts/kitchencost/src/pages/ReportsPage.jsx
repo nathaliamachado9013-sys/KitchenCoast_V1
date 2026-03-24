@@ -113,7 +113,7 @@ const ReportsPage = () => {
                         ) : profitData.items?.map(item => {
                           const cls = CLASSIFICATION_INFO[item.classification] || CLASSIFICATION_INFO.UNCLASSIFIED;
                           return (
-                            <tr key={item.id} className="border-t border-border/50 hover:bg-muted/20">
+                            <tr key={item.id} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                               <td className="px-4 py-3 font-medium">{item.name}</td>
                               <td className="px-4 py-3 text-muted-foreground text-xs">{item.category || '-'}</td>
                               <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${cls.cls}`} title={cls.desc}>{cls.label}</span></td>
@@ -171,7 +171,7 @@ const ReportsPage = () => {
                         {costData.byRecipe?.length === 0 ? (
                           <tr><td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">Nenhuma produção registrada</td></tr>
                         ) : costData.byRecipe?.map((r, i) => (
-                          <tr key={i} className="border-t border-border/50 hover:bg-muted/20">
+                          <tr key={i} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                             <td className="px-4 py-3 font-medium">{r.name}</td>
                             <td className="px-4 py-3">{r.count}</td>
                             <td className="px-4 py-3 font-semibold">{formatCurrency(r.totalCost, currency)}</td>
@@ -212,7 +212,7 @@ const ReportsPage = () => {
                         {marginData.recipes?.length === 0 ? (
                           <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Nenhuma receita com preço definido</td></tr>
                         ) : marginData.recipes?.sort((a, b) => b.margin - a.margin).map((r, i) => (
-                          <tr key={i} className="border-t border-border/50 hover:bg-muted/20">
+                          <tr key={i} className="border-t border-border/50 hover:bg-muted/50 transition-colors">
                             <td className="px-4 py-3 font-medium">{r.name}</td>
                             <td className="px-4 py-3 text-muted-foreground text-xs">{r.category || '-'}</td>
                             <td className="px-4 py-3">{formatCurrency(r.cost, currency)}</td>

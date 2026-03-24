@@ -1084,6 +1084,16 @@ const PurchasesPage = () => {
         )}
       </div>
 
+      {/* Quality hint */}
+      {!selectedFile && (
+        <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-100 flex items-start gap-2 text-xs text-blue-700">
+          <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-500" />
+          <span>
+            <strong>Dica para melhor leitura:</strong> Prefira PDF original ou imagem escaneada, bem iluminada, sem sombras, cortes ou fundo poluído. Fotos tortas ou de baixa resolução podem reduzir a precisão da extração.
+          </span>
+        </div>
+      )}
+
       {extractionError && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2 text-sm text-red-700">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
