@@ -15,7 +15,7 @@ import {
   getIngredients, getResaleProducts,
   createIngredient, createResaleProduct,
   createInvoice, updateInvoice,
-  checkDuplicateInvoice, importInvoiceLineToStock,
+  checkDuplicateInvoice, confirmInvoiceAtomic,
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';
 import { uploadInvoiceFile, validateInvoiceFile, getCloudinaryThumbnailUrl } from '../lib/invoiceStorage';
@@ -182,7 +182,27 @@ const PurchasesPage = () => {
   };
 
   const updateLine = (idx, field, value) => {
-    setReviewLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+    setReviewLines(prev => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+
+      // Auto-calculate the third numeric field from the other two
+      if (field === 'quantity' || field === 'unitPrice') {
+        const qty = parseFloat(field === 'quantity' ? value : updated.quantity);
+        const up  = parseFloat(field === 'unitPrice'  ? value : updated.unitPrice);
+        if (qty > 0 && up > 0) {
+          updated.lineTotal = String(Math.round(qty * up * 100) / 100);
+        }
+      } else if (field === 'lineTotal') {
+        const qty = parseFloat(updated.quantity);
+        const lt  = parseFloat(value);
+        if (qty > 0 && lt > 0) {
+          updated.unitPrice = String(Math.round(lt / qty * 10000) / 10000);
+        }
+      }
+
+      return updated;
+    }));
   };
 
   const getItemOptions = (itemType) => {
@@ -227,6 +247,9 @@ const PurchasesPage = () => {
 
     setIsSaving(true);
     try {
+      const totalAmount = parseFloat(invoiceHeader.totalAmount) || 0;
+
+      // Step 1: Create invoice header doc
       const { id: invoiceId } = await createInvoice(restaurant.id, {
         supplierId: selectedSupplier.id,
         supplierNameSnapshot: selectedSupplier.name,
@@ -234,7 +257,7 @@ const PurchasesPage = () => {
         invoiceNumber: invoiceHeader.invoiceNumber,
         invoiceDate: invoiceHeader.invoiceDate,
         currency: invoiceHeader.currency,
-        totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
+        totalAmount,
         fileUrl: '',
         fileType: selectedFile?.type || '',
         extractedJson: { items: reviewLines },
@@ -242,20 +265,19 @@ const PurchasesPage = () => {
         uploadedBy: user?.uid || '',
       });
 
+      // Step 2: Upload file (non-blocking for import if it fails)
       let fileUrl = '';
       let attachmentMeta = null;
       try {
         attachmentMeta = await uploadInvoiceFile(restaurant.id, invoiceId, selectedFile, user?.uid || '');
         fileUrl = attachmentMeta.url;
+        await updateInvoice(restaurant.id, invoiceId, { fileUrl, attachment: attachmentMeta });
       } catch (uploadErr) {
         console.warn('Cloudinary upload failed:', uploadErr.message);
       }
 
-      // Work on a mutable copy so we can store newly created item IDs
+      // Step 3: Create new items for lines with createNew = true (must precede the batch)
       const workingLines = reviewLines.map(l => ({ ...l }));
-      let stockUpdateErrors = 0;
-
-      // First pass: create new items for lines with createNew = true
       for (const line of workingLines) {
         if (!line.createNew || line.linkedItemId) continue;
         try {
@@ -266,6 +288,8 @@ const PurchasesPage = () => {
               costPerUnit: 0,
               currentStock: 0,
               minStock: 0,
+              supplierId: selectedSupplier.id,
+              supplierName: selectedSupplier.name,
             });
             line.linkedItemId = newItem.id;
           } else if (line.itemType === 'resale_product') {
@@ -279,65 +303,25 @@ const PurchasesPage = () => {
           }
         } catch (err) {
           console.error('Falha ao criar item:', err);
-          stockUpdateErrors++;
         }
       }
 
-      // Second pass: import stock for all linked lines
-      const confirmedLines = [];
-      for (const line of workingLines) {
-        const qty = parseFloat(line.quantity) || 0;
-        const unitPrice = parseFloat(line.unitPrice) || 0;
-        const lineTotal = parseFloat(line.lineTotal) || qty * unitPrice;
-
-        if ((line.itemType === 'ingredient' || line.itemType === 'resale_product') && line.linkedItemId) {
-          try {
-            await importInvoiceLineToStock(restaurant.id, invoiceId, {
-              linkedItemId: line.linkedItemId,
-              itemType: line.itemType,
-              confirmedName: line.suggestedName,
-              rawDescription: line.rawDescription,
-              quantity: qty,
-              unit: line.unit,
-              unitPrice,
-              lineTotal,
-            });
-            confirmedLines.push({ ...line, qty, unitPrice, lineTotal, status: 'imported' });
-          } catch {
-            stockUpdateErrors++;
-            confirmedLines.push({ ...line, status: 'error' });
-          }
-        } else {
-          confirmedLines.push({ ...line, status: line.itemType === 'ignore' ? 'ignored' : 'skipped' });
-        }
-      }
-
-      const stockImportedValue = confirmedLines
-        .filter(l => l.status === 'imported')
-        .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
-
-      const ignoredValue = confirmedLines
-        .filter(l => l.status === 'ignored' || l.status === 'skipped')
-        .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
-
-      await updateInvoice(restaurant.id, invoiceId, {
-        fileUrl,
-        attachment: attachmentMeta || null,
-        confirmedJson: { items: confirmedLines },
-        stockImportedValue,
-        ignoredValue,
-        status: stockUpdateErrors > 0 ? 'with_divergence' : 'imported',
-      });
+      // Step 4: Atomic batch — all stock updates + movements + invoice status in one commit
+      const { confirmedLines, stockImportedValue, ignoredValue, discrepancy } =
+        await confirmInvoiceAtomic(restaurant.id, invoiceId, workingLines, totalAmount);
 
       const importedCount = confirmedLines.filter(l => l.status === 'imported').length;
+      const errorCount    = confirmedLines.filter(l => l.status === 'error').length;
 
       setSavedResult({
         invoiceId,
+        confirmedLines,
         stockLinesImported: importedCount,
+        stockUpdateErrors: errorCount,
         stockImportedValue,
         ignoredValue,
-        totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
-        stockUpdateErrors,
+        discrepancy,
+        totalAmount,
         fileUrl,
         fileMimeType: selectedFile?.type,
       });
@@ -389,61 +373,142 @@ const PurchasesPage = () => {
   if (step === 'done' && savedResult) {
     const thumbUrl = getCloudinaryThumbnailUrl(savedResult.fileUrl, savedResult.fileMimeType);
     const isPdf = savedResult.fileMimeType === 'application/pdf';
+    const hasDiscrepancy = savedResult.discrepancy && Math.abs(savedResult.discrepancy) > 0.01;
+    const importedItems = (savedResult.confirmedLines || []).filter(l => l.status === 'imported');
+    const ignoredItems  = (savedResult.confirmedLines || []).filter(l => l.status === 'ignored' || l.status === 'skipped');
+    const errorItems    = (savedResult.confirmedLines || []).filter(l => l.status === 'error');
+
     return (
       <Layout>
-        <div className="page-container max-w-xl mx-auto">
-        <div className="flex flex-col items-center text-center py-12">
-          <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
-            <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-foreground mb-2">Nota importada!</h2>
-          <p className="text-muted-foreground mb-1">
-            {savedResult.stockLinesImported} item(ns) atualizados no estoque com custo médio ponderado.
-          </p>
-          {savedResult.stockUpdateErrors > 0 && (
-            <p className="text-amber-600 text-sm mt-1">
-              {savedResult.stockUpdateErrors} item(ns) não puderam ser atualizados.
+        <div className="page-container max-w-2xl mx-auto pb-16">
+
+          {/* Header */}
+          <div className="flex flex-col items-center text-center pt-10 pb-6">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${savedResult.stockUpdateErrors > 0 ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+              <CheckCircle2 className={`w-8 h-8 ${savedResult.stockUpdateErrors > 0 ? 'text-amber-600' : 'text-emerald-600'}`} />
+            </div>
+            <h2 className="text-2xl font-bold text-foreground mb-1">Nota importada!</h2>
+            <p className="text-muted-foreground text-sm">
+              {savedResult.stockLinesImported} item(ns) atualizados no estoque com custo médio ponderado.
             </p>
-          )}
-          <div className="mt-3 text-sm space-y-1 bg-muted/40 rounded-xl p-4 text-left w-full">
-            <div className="flex justify-between"><span className="text-muted-foreground">Total da nota:</span><span className="font-medium">{formatCurrency(savedResult.totalAmount, currency)}</span></div>
-            {savedResult.stockImportedValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor importado p/ estoque:</span><span className="font-medium text-emerald-700">{formatCurrency(savedResult.stockImportedValue, currency)}</span></div>}
-            {savedResult.ignoredValue > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Valor ignorado / taxas:</span><span className="text-muted-foreground">{formatCurrency(savedResult.ignoredValue, currency)}</span></div>}
+            {savedResult.stockUpdateErrors > 0 && (
+              <p className="text-amber-600 text-sm mt-1">
+                {savedResult.stockUpdateErrors} item(ns) com erro — verifique abaixo.
+              </p>
+            )}
           </div>
 
-          {savedResult.fileUrl && (
-            <div className="mt-6 flex flex-col items-center gap-2">
-              {thumbUrl && !isPdf ? (
-                <a href={savedResult.fileUrl} target="_blank" rel="noopener noreferrer">
-                  <img
-                    src={thumbUrl}
-                    alt="Nota fiscal"
-                    className="w-24 h-24 object-cover rounded-xl border border-border shadow-sm hover:shadow-md transition-shadow"
-                  />
-                </a>
-              ) : (
-                <a
-                  href={savedResult.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm text-emerald-600 font-medium hover:underline"
-                >
-                  <FileText className="w-4 h-4" />
-                  Ver PDF da nota fiscal
-                </a>
+          {/* Financial summary */}
+          <div className="card mb-4">
+            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3">Resumo Financeiro</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total da nota</span>
+                <span className="font-semibold">{formatCurrency(savedResult.totalAmount, currency)}</span>
+              </div>
+              {savedResult.stockImportedValue > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Valor importado p/ estoque</span>
+                  <span className="font-medium text-emerald-700">{formatCurrency(savedResult.stockImportedValue, currency)}</span>
+                </div>
               )}
-              <p className="text-xs text-muted-foreground">Arquivo salvo — clique para visualizar</p>
+              {savedResult.ignoredValue > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Valor ignorado / taxas</span>
+                  <span className="text-muted-foreground">{formatCurrency(savedResult.ignoredValue, currency)}</span>
+                </div>
+              )}
+              {hasDiscrepancy && (
+                <div className="flex justify-between pt-2 border-t border-border">
+                  <span className={`font-medium ${Math.abs(savedResult.discrepancy) > 1 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                    Discrepância
+                  </span>
+                  <span className={`font-semibold ${Math.abs(savedResult.discrepancy) > 1 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                    {formatCurrency(savedResult.discrepancy, currency)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Per-item feedback */}
+          {importedItems.length > 0 && (
+            <div className="card mb-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3">Itens Importados para o Estoque</h3>
+              <div className="space-y-2">
+                {importedItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      </span>
+                      <span className="font-medium">{item.suggestedName || item.confirmedName}</span>
+                    </div>
+                    <span className="text-emerald-700 font-medium shrink-0 ml-2">{item.addedToStock || `+${item.qty || item.quantity}`}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
-          <div className="flex gap-3 mt-8">
+          {/* Ignored items */}
+          {ignoredItems.length > 0 && (
+            <div className="card mb-4 opacity-70">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3">Itens Ignorados</h3>
+              <div className="space-y-1">
+                {ignoredItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+                    <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                    <span>{item.suggestedName || item.rawDescription || 'Item sem nome'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Error items */}
+          {errorItems.length > 0 && (
+            <div className="card mb-4 border-amber-200 bg-amber-50">
+              <h3 className="font-semibold text-sm text-amber-700 uppercase tracking-wide mb-3">Itens com Erro</h3>
+              <div className="space-y-1">
+                {errorItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm text-amber-700 py-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{item.suggestedName || item.rawDescription || 'Item sem nome'} — {item.error || 'Erro desconhecido'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Attachment */}
+          {savedResult.fileUrl && (
+            <div className="card mb-6 flex items-center gap-4">
+              {thumbUrl && !isPdf ? (
+                <a href={savedResult.fileUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                  <img src={thumbUrl} alt="Nota fiscal" className="w-16 h-16 object-cover rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow" />
+                </a>
+              ) : (
+                <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <FileText className="w-6 h-6 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Arquivo anexado</p>
+                <a href={savedResult.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-600 hover:underline">
+                  Clique para visualizar
+                </a>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
             <Button onClick={resetAll} className="bg-emerald-600 hover:bg-emerald-700">
               <Plus className="w-4 h-4 mr-2" />
               Importar outra nota
             </Button>
           </div>
         </div>
-      </div>
       </Layout>
     );
   }

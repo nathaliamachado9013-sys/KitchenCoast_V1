@@ -7,6 +7,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   query,
   where,
   orderBy,
@@ -1210,6 +1211,155 @@ export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) =>
   }
 
   await deleteDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId));
+};
+
+// ─── ATOMIC INVOICE IMPORT ───────────────────────────────────────────────────
+// Imports all stock lines in a single Firestore WriteBatch (atomic).
+// workingLines must already have linkedItemId resolved for all stock items.
+// ignoredLines = items with itemType 'ignore'.
+// Returns { confirmedLines, stockImportedValue, ignoredValue, discrepancy }.
+export const confirmInvoiceAtomic = async (restaurantId, invoiceId, workingLines, totalInvoiceAmount) => {
+  const stockLines = workingLines.filter(
+    l => (l.itemType === 'ingredient' || l.itemType === 'resale_product') && l.linkedItemId,
+  );
+  const nonStockLines = workingLines.filter(
+    l => !stockLines.includes(l),
+  );
+
+  // Read all current stock docs in parallel
+  const snapshots = await Promise.all(
+    stockLines.map(line => {
+      const colName = line.itemType === 'ingredient' ? 'ingredients' : 'resale_products';
+      return getDoc(doc(db, 'restaurants', restaurantId, colName, line.linkedItemId));
+    }),
+  );
+
+  const batch = writeBatch(db);
+  const confirmedLines = [];
+  let stockImportedValue = 0;
+  let ignoredValue = 0;
+
+  // Process each stock line
+  for (let i = 0; i < stockLines.length; i++) {
+    const line = stockLines[i];
+    const snap = snapshots[i];
+
+    if (!snap.exists()) {
+      confirmedLines.push({ ...line, status: 'error', error: 'Item não encontrado' });
+      continue;
+    }
+
+    const current = snap.data();
+    const qty = parseFloat(line.quantity) || 0;
+    const unitPrice = parseFloat(line.unitPrice) || 0;
+    const lineTotal = parseFloat(line.lineTotal) || Math.round(qty * unitPrice * 1000) / 1000;
+
+    if (line.itemType === 'ingredient') {
+      const currentQty = current.currentStock || 0;
+      const currentAvg = current.averageCost || current.costPerUnit || 0;
+      const newTotalValue = currentQty * currentAvg + lineTotal;
+      const newQty = currentQty + qty;
+      const newAvg = newQty > 0 ? newTotalValue / newQty : unitPrice;
+
+      batch.update(
+        doc(db, 'restaurants', restaurantId, 'ingredients', line.linkedItemId),
+        { currentStock: newQty, costPerUnit: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() },
+      );
+
+      const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
+      batch.set(movRef, {
+        type: 'in',
+        ingredientId: line.linkedItemId,
+        ingredientName: current.name,
+        quantity: qty,
+        unit: line.unit || current.unit || '',
+        unitCost: unitPrice,
+        averageCostAfter: newAvg,
+        invoiceId,
+        referenceType: 'invoice',
+        referenceId: invoiceId,
+        notes: `Importado da nota fiscal — ${line.rawDescription || line.confirmedName || line.suggestedName || ''}`,
+        createdAt: serverTimestamp(),
+      });
+
+      confirmedLines.push({
+        ...line,
+        status: 'imported',
+        qty,
+        unitPrice,
+        lineTotal,
+        addedToStock: `+${qty} ${line.unit || current.unit || 'un'}`,
+        newAvgCost: newAvg,
+      });
+      stockImportedValue += lineTotal;
+    } else if (line.itemType === 'resale_product') {
+      const currentQty = current.stockQuantity || 0;
+      const currentAvg = current.averageCost || current.cost || 0;
+      const newTotalValue = currentQty * currentAvg + lineTotal;
+      const newQty = currentQty + qty;
+      const newAvg = newQty > 0 ? newTotalValue / newQty : unitPrice;
+
+      batch.update(
+        doc(db, 'restaurants', restaurantId, 'resale_products', line.linkedItemId),
+        { stockQuantity: newQty, cost: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() },
+      );
+
+      const movRef = doc(collection(db, 'restaurants', restaurantId, 'stock_movements'));
+      batch.set(movRef, {
+        type: 'in',
+        resaleProductId: line.linkedItemId,
+        ingredientName: current.name,
+        quantity: qty,
+        unit: line.unit || '',
+        unitCost: unitPrice,
+        averageCostAfter: newAvg,
+        invoiceId,
+        referenceType: 'invoice',
+        referenceId: invoiceId,
+        notes: `Importado da nota fiscal — ${line.rawDescription || line.confirmedName || line.suggestedName || ''}`,
+        createdAt: serverTimestamp(),
+      });
+
+      confirmedLines.push({
+        ...line,
+        status: 'imported',
+        qty,
+        unitPrice,
+        lineTotal,
+        addedToStock: `+${qty} ${line.unit || 'un'}`,
+        newAvgCost: newAvg,
+      });
+      stockImportedValue += lineTotal;
+    }
+  }
+
+  // Non-stock lines (ignored, skipped, error)
+  for (const line of nonStockLines) {
+    const lt = parseFloat(line.lineTotal) || 0;
+    const status = line.itemType === 'ignore' ? 'ignored' : 'skipped';
+    confirmedLines.push({ ...line, status });
+    ignoredValue += lt;
+  }
+
+  const discrepancy = Math.round(((totalInvoiceAmount || 0) - stockImportedValue - ignoredValue) * 100) / 100;
+  const hasErrors = confirmedLines.some(l => l.status === 'error');
+  const status = hasErrors ? 'with_divergence' : 'imported';
+
+  batch.update(
+    doc(db, 'restaurants', restaurantId, 'invoices', invoiceId),
+    {
+      confirmedJson: { items: confirmedLines },
+      stockImportedValue,
+      ignoredValue,
+      discrepancy,
+      status,
+      updatedAt: serverTimestamp(),
+    },
+  );
+
+  await batch.commit();
+
+  return { confirmedLines, stockImportedValue, ignoredValue, discrepancy, status };
 };
 
 // Weighted average cost update when importing an invoice line to stock

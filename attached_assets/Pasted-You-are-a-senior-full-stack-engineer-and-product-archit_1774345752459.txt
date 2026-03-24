@@ -1,0 +1,263 @@
+You are a senior full-stack engineer and product architect.
+
+Your task is to audit and fix a restaurant SaaS (KitchenCost) focusing on:
+- data consistency
+- stock integrity
+- invoice import reliability
+- UX improvements
+- security best practices
+
+The system uses Firebase (Firestore + Auth) and Cloudinary.
+
+---
+
+# 1. CRITICAL DATA & STOCK CONSISTENCY FIXES
+
+## Issue: Stock is not updating correctly after invoice import
+
+Fix logic so that:
+
+For each imported item:
+1. Validate item type (ingredient or resale)
+2. Ensure item is linked to an inventory item
+3. Convert units if needed (kg, g, L, unit)
+4. Update stock:
+   stock += quantity
+5. Recalculate weighted average cost
+
+## Requirements:
+- Must be atomic (use batch or transaction)
+- If invoice fails → NO stock update
+- If stock updates → invoice must be marked as completed
+- Never allow partial state
+
+---
+
+# 2. INVOICE IMPORT INTEGRITY
+
+## Issues:
+- duplicate invoices allowed
+- no recalculation when items are ignored
+- invoice total vs imported total mismatch
+
+## Fix:
+- block duplicate invoices using:
+  supplierId + invoiceNumber
+- track:
+  - total_invoice_value
+  - imported_value
+  - ignored_value
+
+## Add:
+difference = total_invoice_value - imported_value
+
+Display clearly:
+- imported items total
+- ignored items total
+- discrepancy
+
+---
+
+# 3. UNIT NORMALIZATION SYSTEM
+
+## Problem:
+Mixed units (kg, g, unit, box, pack)
+
+## Fix:
+Create internal base units:
+- weight → grams
+- liquid → milliliters
+- unit → integer
+
+All calculations must use normalized units internally.
+
+---
+
+# 4. AUTO CALCULATION (UX + LOGIC)
+
+## Problem:
+User manually inputs unit price
+
+## Fix:
+
+If:
+- quantity + total → calculate unit_price
+- quantity + unit_price → calculate total
+- unit_price + total → calculate quantity
+
+## Requirements:
+- round to 2 decimals (display)
+- keep precision internally
+- allow manual override
+
+---
+
+# 5. INGREDIENT CREATION & LINKING
+
+## Issues:
+- ingredient created without supplier
+- ingredient created without category
+- ingredient created but stock not updated
+
+## Fix:
+When creating ingredient from invoice:
+- assign supplier automatically
+- assign default category if missing
+- update stock immediately
+- set initial cost
+
+---
+
+# 6. ENTRY (STOCK INPUT) FLOW FIX
+
+## Problems:
+- cannot create new ingredient inside entry modal
+- dropdown list does not scroll
+
+## Fix:
+
+### UX:
+- fix dropdown scroll (max height + overflow)
+- improve search
+
+### Add:
+"Create new ingredient" inside modal
+
+Flow:
+- create ingredient
+- auto-select it
+- continue entry
+
+---
+
+# 7. UI/UX IMPROVEMENTS
+
+## Hover / Selection
+- improve row hover visibility
+- highlight selected row clearly
+
+## Status clarity:
+Replace vague status with:
+- OK
+- Updated
+- Error
+- Ignored
+
+## Feedback:
+Show per-item logs:
+"+5kg added to stock"
+
+---
+
+# 8. ERROR HANDLING
+
+## Problem:
+System partially saves data when error occurs
+
+## Fix:
+- implement full transactional behavior
+- add error states:
+  - pending
+  - processing
+  - failed
+  - completed
+
+---
+
+# 9. CLOUDINARY DATA ISOLATION
+
+## Problem:
+Possible mix of documents across tenants
+
+## Fix:
+Use structured folder path:
+
+/restaurants/{restaurantId}/invoices/{invoiceId}
+
+Never store files globally.
+
+---
+
+# 10. SECURITY (CRITICAL)
+
+## Password security:
+- NEVER use MD5 or SHA1
+- Use bcrypt with salt (cost factor >= 10)
+
+## Firebase Auth:
+- enforce strong password policy
+
+## Data protection (GDPR compliant):
+- encrypt sensitive fields if needed
+- limit data access per company (multi-tenant isolation)
+- enforce Firestore rules:
+  users can only access their company data
+
+## Firestore Rules:
+- strict tenant isolation
+- validate ownership on every read/write
+
+---
+
+# 11. COST & INVENTORY ACCURACY
+
+## Problem:
+Inventory value incorrect
+
+## Fix:
+Inventory value = SUM(stock * average_cost)
+
+Recalculate:
+- after each invoice import
+- after each stock movement
+
+---
+
+# 12. REPORTING CONSISTENCY
+
+Ensure:
+- invoice values match supplier totals
+- stock reflects all entries
+- cost changes propagate to recipes
+
+---
+
+# OUTPUT EXPECTATION
+
+Deliver:
+
+1. Refactored logic for:
+   - invoice import
+   - stock update
+   - cost calculation
+
+2. Improved UI behaviors:
+   - dropdown
+   - hover
+   - feedback
+
+3. Security implementation:
+   - bcrypt
+   - Firestore rules
+
+4. Clear separation of:
+   - ingredient
+   - resale product
+   - ignored items
+
+5. No breaking of existing data
+
+---
+
+# PRIORITY ORDER
+
+1. Stock integrity
+2. Invoice correctness
+3. Data consistency
+4. UX fixes
+5. Security hardening
+
+---
+
+This is a production-critical system. 
+Focus on reliability, clarity, and preventing user error.

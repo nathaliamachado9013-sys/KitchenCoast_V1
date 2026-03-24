@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/useAuth';
-import { getIngredients, getResaleProducts, getStockMovements, createStockEntry, createStockExit, createResaleStockEntry, createResaleStockExit, getInventoryValue } from '../lib/firestore';
+import { getIngredients, getResaleProducts, getStockMovements, createStockEntry, createStockExit, createResaleStockEntry, createResaleStockExit, getInventoryValue, createIngredient } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Package, ArrowUpCircle, ArrowDownCircle, AlertTriangle, DollarSign } from 'lucide-react';
+import { Plus, Loader2, Package, ArrowUpCircle, ArrowDownCircle, AlertTriangle, DollarSign, PlusCircle, X } from 'lucide-react';
 
 const StockPage = () => {
   const { restaurant, currency } = useAuth();
@@ -24,6 +24,11 @@ const StockPage = () => {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const [formData, setFormData] = useState({ itemType: 'ingredient', itemId: '', quantity: '', unitCost: '', reason: 'compra' });
+
+  // Inline ingredient creation state
+  const [showNewIngredientForm, setShowNewIngredientForm] = useState(false);
+  const [newIngredient, setNewIngredient] = useState({ name: '', unit: '' });
+  const [creatingIngredient, setCreatingIngredient] = useState(false);
 
   useEffect(() => { if (restaurant?.restaurantId) loadData(); }, [restaurant]);
 
@@ -44,7 +49,37 @@ const StockPage = () => {
   const openModal = (type) => {
     setModalType(type);
     setFormData({ itemType: 'ingredient', itemId: '', quantity: '', unitCost: '', reason: type === 'entry' ? 'compra' : 'producao' });
+    setShowNewIngredientForm(false);
+    setNewIngredient({ name: '', unit: '' });
     setModalOpen(true);
+  };
+
+  const handleCreateNewIngredient = async () => {
+    if (!newIngredient.name.trim()) {
+      toast({ title: 'Nome obrigatório', variant: 'destructive' });
+      return;
+    }
+    setCreatingIngredient(true);
+    try {
+      const rid = restaurant.restaurantId || restaurant.id;
+      const created = await createIngredient(rid, {
+        name: newIngredient.name.trim(),
+        unit: newIngredient.unit.trim() || 'un',
+        costPerUnit: 0,
+        currentStock: 0,
+        minStock: 0,
+      });
+      const updated = [...ingredients, { ...created, id: created.id, name: newIngredient.name.trim(), unit: newIngredient.unit.trim() || 'un', currentStock: 0 }];
+      setIngredients(updated);
+      setFormData(f => ({ ...f, itemId: created.id }));
+      setShowNewIngredientForm(false);
+      setNewIngredient({ name: '', unit: '' });
+      toast({ title: `Ingrediente "${newIngredient.name.trim()}" criado!` });
+    } catch (err) {
+      toast({ title: 'Erro ao criar ingrediente', description: err.message, variant: 'destructive' });
+    } finally {
+      setCreatingIngredient(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -221,16 +256,68 @@ const StockPage = () => {
               </Select>
             </div>
             <div>
-              <Label>{formData.itemType === 'ingredient' ? 'Ingrediente' : 'Produto'} *</Label>
-              <Select value={formData.itemId || 'none'} onValueChange={(v) => setFormData({ ...formData, itemId: v === 'none' ? '' : v })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent>
-                  {formData.itemType === 'ingredient'
-                    ? ingredients.map(i => <SelectItem key={i.id} value={i.id}>{i.name} ({formatNumber(i.currentStock || 0)} {i.unit})</SelectItem>)
-                    : resaleProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} ({formatNumber(p.stockQuantity || 0)} {p.unit || 'un'})</SelectItem>)
-                  }
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between mb-1">
+                <Label>{formData.itemType === 'ingredient' ? 'Ingrediente' : 'Produto'} *</Label>
+                {formData.itemType === 'ingredient' && !showNewIngredientForm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewIngredientForm(true)}
+                    className="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1 font-medium"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Novo ingrediente
+                  </button>
+                )}
+              </div>
+
+              {showNewIngredientForm ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-emerald-700">Criar novo ingrediente</span>
+                    <button type="button" onClick={() => setShowNewIngredientForm(false)} className="text-muted-foreground hover:text-foreground">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Nome *"
+                      value={newIngredient.name}
+                      onChange={e => setNewIngredient(n => ({ ...n, name: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateNewIngredient())}
+                      className="flex-1 text-sm"
+                      autoFocus
+                    />
+                    <Input
+                      placeholder="Unidade (kg, L...)"
+                      value={newIngredient.unit}
+                      onChange={e => setNewIngredient(n => ({ ...n, unit: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateNewIngredient())}
+                      className="w-28 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleCreateNewIngredient}
+                      disabled={creatingIngredient || !newIngredient.name.trim()}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-xs h-7 px-3"
+                    >
+                      {creatingIngredient ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Criar e selecionar'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Select value={formData.itemId || 'none'} onValueChange={(v) => setFormData({ ...formData, itemId: v === 'none' ? '' : v })}>
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {formData.itemType === 'ingredient'
+                      ? ingredients.map(i => <SelectItem key={i.id} value={i.id}>{i.name} ({formatNumber(i.currentStock || 0)} {i.unit})</SelectItem>)
+                      : resaleProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} ({formatNumber(p.stockQuantity || 0)} {p.unit || 'un'})</SelectItem>)
+                    }
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div><Label>Quantidade *</Label><Input type="number" step="0.01" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} required /></div>
             {modalType === 'entry' && <div><Label>Custo unitário (opcional)</Label><Input type="number" step="0.01" value={formData.unitCost} onChange={(e) => setFormData({ ...formData, unitCost: e.target.value })} placeholder="Deixe em branco para manter o atual" /></div>}
