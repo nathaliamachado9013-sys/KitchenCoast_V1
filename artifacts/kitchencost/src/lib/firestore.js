@@ -1219,6 +1219,15 @@ export const checkDuplicateInvoice = async (restaurantId, supplierId, invoiceNum
 };
 
 export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) => {
+  // 1. Read invoice to get supplierId + amount for supplier reversal
+  const invoiceRef = doc(db, 'restaurants', restaurantId, 'invoices', invoiceId);
+  const invoiceSnap = await getDoc(invoiceRef);
+  const invoiceData = invoiceSnap.exists() ? invoiceSnap.data() : {};
+  const supplierId = invoiceData.supplierId || null;
+  const invoiceAmount = invoiceData.totalAmount || 0;
+  const wasImported = ['imported', 'with_divergence'].includes(invoiceData.status);
+
+  // 2. Read all stock movements for this invoice
   const movQ = query(
     collection(db, 'restaurants', restaurantId, 'stock_movements'),
     where('invoiceId', '==', invoiceId)
@@ -1226,15 +1235,32 @@ export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) =>
   const movSnap = await getDocs(movQ);
   const movements = movSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  for (const mov of movements) {
+  // 3. Read all affected item docs to compute new stock values
+  const itemReads = movements.map(async (mov) => {
     const qty = mov.quantity || 0;
     const unitCost = mov.unitCost || 0;
-
-    if (mov.ingredientId) {
-      const ref = doc(db, 'restaurants', restaurantId, 'ingredients', mov.ingredientId);
+    if (mov.ingredientId || mov.itemId && mov.itemType === 'ingredient') {
+      const itemId = mov.ingredientId || mov.itemId;
+      const ref = doc(db, 'restaurants', restaurantId, 'ingredients', itemId);
       const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const data = snap.data();
+      return { mov, ref, snap, itemType: 'ingredient', qty, unitCost };
+    } else if (mov.resaleProductId || (mov.itemId && mov.itemType === 'resale_product')) {
+      const itemId = mov.resaleProductId || mov.itemId;
+      const ref = doc(db, 'restaurants', restaurantId, 'resale_products', itemId);
+      const snap = await getDoc(ref);
+      return { mov, ref, snap, itemType: 'resale_product', qty, unitCost };
+    }
+    return { mov, ref: null, snap: null, itemType: null, qty, unitCost };
+  });
+  const results = await Promise.all(itemReads);
+
+  // 4. Build a single atomic WriteBatch for ALL writes
+  const batch = writeBatch(db);
+
+  for (const { mov, ref, snap, itemType, qty, unitCost } of results) {
+    if (ref && snap && snap.exists()) {
+      const data = snap.data();
+      if (itemType === 'ingredient') {
         const currentQty = data.currentStock || 0;
         const currentAvg = data.averageCost || data.costPerUnit || 0;
         const newQty = Math.max(0, currentQty - qty);
@@ -1242,13 +1268,8 @@ export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) =>
         const currentTotalValue = currentQty * currentAvg;
         const newTotalValue = Math.max(0, currentTotalValue - removedValue);
         const newAvg = newQty > 0 ? newTotalValue / newQty : currentAvg;
-        await updateDoc(ref, { currentStock: newQty, costPerUnit: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
-      }
-    } else if (mov.resaleProductId) {
-      const ref = doc(db, 'restaurants', restaurantId, 'resale_products', mov.resaleProductId);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const data = snap.data();
+        batch.update(ref, { currentStock: newQty, costPerUnit: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
+      } else if (itemType === 'resale_product') {
         const currentQty = data.stockQuantity || 0;
         const currentAvg = data.averageCost || data.cost || 0;
         const newQty = Math.max(0, currentQty - qty);
@@ -1256,14 +1277,27 @@ export const deleteInvoiceWithStockReversal = async (restaurantId, invoiceId) =>
         const currentTotalValue = currentQty * currentAvg;
         const newTotalValue = Math.max(0, currentTotalValue - removedValue);
         const newAvg = newQty > 0 ? newTotalValue / newQty : currentAvg;
-        await updateDoc(ref, { stockQuantity: newQty, cost: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
+        batch.update(ref, { stockQuantity: newQty, cost: newAvg, averageCost: newAvg, updatedAt: serverTimestamp() });
       }
     }
-
-    await deleteDoc(doc(db, 'restaurants', restaurantId, 'stock_movements', mov.id));
+    // Delete the movement
+    batch.delete(doc(db, 'restaurants', restaurantId, 'stock_movements', mov.id));
   }
 
-  await deleteDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId));
+  // 5. Reverse supplier totals if the invoice was imported
+  if (supplierId && wasImported) {
+    const supplierRef = doc(db, 'restaurants', restaurantId, 'suppliers', supplierId);
+    batch.update(supplierRef, {
+      totalSpent: increment(-invoiceAmount),
+      invoiceCount: increment(-1),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // 6. Delete the invoice doc itself
+  batch.delete(invoiceRef);
+
+  await batch.commit();
 };
 
 // ─── ATOMIC INVOICE IMPORT ───────────────────────────────────────────────────

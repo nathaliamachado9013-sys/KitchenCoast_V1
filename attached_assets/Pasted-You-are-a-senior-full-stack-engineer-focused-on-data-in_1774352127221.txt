@@ -1,0 +1,228 @@
+You are a senior full-stack engineer focused on data integrity and system reliability.
+
+This task is NOT about UI or new features.
+This is about fixing the remaining CRITICAL logic issues in KitchenCost.
+
+Do NOT redesign anything.
+Do NOT change architecture.
+Fix only what is necessary for correctness.
+
+==================================================
+1. REAL UNIT CONVERSION (NOT JUST NORMALIZATION)
+==================================================
+
+Current issue:
+The system normalizes unit names (kg → Kg, etc.) but does NOT correctly convert quantities from packs, boxes, dozens, etc.
+
+This causes incorrect stock and cost.
+
+You MUST implement real conversion logic.
+
+--------------------------------------------------
+Required behavior:
+
+All quantities must be converted into one of:
+g, ml, L, Kg, uni
+
+--------------------------------------------------
+Examples (must work):
+
+- 15 dúzias de ovos → 180 uni
+- 2 packs de 12 pães → 24 uni
+- 3 sacos de 2.5 Kg → 7.5 Kg
+- 4 × 30g salsa → 120 g
+- 2 caixas de 5L → 10 L
+
+--------------------------------------------------
+Implementation rules:
+
+- Create a conversion layer BEFORE stock update
+- Extract multiplier from product name or parsed metadata
+- Apply:
+  final_quantity = quantity × multiplier
+
+- If multiplier cannot be determined:
+  → DO NOT GUESS
+  → require user confirmation in review step
+
+- Store ONLY normalized unit + converted quantity in database
+
+--------------------------------------------------
+Never:
+
+- store "pack", "box", "dúzia" as final unit
+- skip conversion silently
+- allow mixed units in cost calculation
+
+==================================================
+2. GUARANTEE: ITEM ALWAYS ENTERS STOCK
+==================================================
+
+Current issue:
+Items are sometimes created but stock is not updated.
+
+Fix:
+
+For EVERY valid invoice line:
+
+IF item is linked OR created:
+→ MUST create stock movement (type = "in")
+→ MUST update stock
+→ MUST update average cost
+
+--------------------------------------------------
+Validation rules:
+
+If:
+- item created BUT no stock movement → FAIL import
+- stock movement exists BUT stock not updated → FAIL import
+
+No silent failures allowed.
+
+==================================================
+3. STOCK MUST COME FROM MOVEMENTS ONLY
+==================================================
+
+Critical rule:
+
+Stock MUST be derived from stock_movements.
+
+--------------------------------------------------
+Required:
+
+current_stock = SUM(in) - SUM(out)
+
+--------------------------------------------------
+Search and REMOVE any logic like:
+
+item.stock += quantity
+
+or
+
+item.stock = new_value directly
+
+--------------------------------------------------
+Stock must only change via:
+→ stock_movements
+
+==================================================
+4. FULL INVOICE FLOW VALIDATION (END-TO-END)
+==================================================
+
+Fix all inconsistencies in invoice processing.
+
+--------------------------------------------------
+Required behavior:
+
+For BOTH image and PDF:
+
+1. same normalization
+2. same validation
+3. same stock logic
+4. same finalization
+
+--------------------------------------------------
+After import:
+
+Invoice MUST:
+- not remain in "review"
+- have valid status: completed or failed
+
+--------------------------------------------------
+If error occurs:
+
+- NO partial writes
+- NO partial stock updates
+- invoice.status = "failed"
+
+--------------------------------------------------
+Add discrepancy tracking:
+
+total_invoice_value
+imported_value
+ignored_value
+difference
+
+--------------------------------------------------
+Never:
+
+- leave invoice stuck
+- allow PDF to skip logic
+- allow partial state
+
+==================================================
+5. CLOUDINARY REAL FILE DELETION
+==================================================
+
+Current risk:
+Files may not be deleted from Cloudinary.
+
+--------------------------------------------------
+Required:
+
+On account deletion:
+
+For each stored file:
+- use Cloudinary API
+- delete using public_id
+
+--------------------------------------------------
+Do NOT:
+- assume Firestore deletion removes file
+- leave orphan files
+
+--------------------------------------------------
+If deletion fails:
+- log error
+- continue process safely
+
+==================================================
+6. STRUCTURED ERROR HANDLING
+==================================================
+
+Fix broken or silent failures.
+
+--------------------------------------------------
+Invoice statuses must be:
+
+- pending
+- processing
+- completed
+- failed
+
+--------------------------------------------------
+If import fails:
+
+- mark invoice as "failed"
+- store internal error
+- show user-friendly message:
+  "Falha ao importar a nota. Verifique os dados e tente novamente."
+
+--------------------------------------------------
+Allow:
+- retry import
+- delete failed invoice
+
+--------------------------------------------------
+Never:
+
+- leave invoice inaccessible
+- show raw technical errors to user
+
+==================================================
+7. FINAL GUARANTEES
+==================================================
+
+After implementation:
+
+- unit conversion is mathematically correct
+- stock is always accurate
+- items always enter stock correctly
+- inventory value is trustworthy
+- invoice never gets stuck
+- PDF and image behave identically
+- no orphan Cloudinary files remain
+- no partial or inconsistent data is possible
+
+This is a DATA INTEGRITY task.
+Precision is more important than speed.

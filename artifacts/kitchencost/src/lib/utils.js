@@ -53,6 +53,86 @@ export const normalizeUnit = (raw) => {
   return null; // unknown — caller must decide
 };
 
+/**
+ * KNOWN_MULTIPLIERS: units that always have a fixed per-unit count.
+ * When the AI fails to convert these, we can do it client-side.
+ */
+const KNOWN_MULTIPLIERS = {
+  'dúzia': 12, 'dúzias': 12, 'dz': 12, 'dozen': 12, 'dozens': 12,
+  'par': 2, 'pares': 2, 'pair': 2, 'pairs': 2,
+};
+
+/**
+ * VARIABLE_MULTIPLIER_UNITS: units whose per-unit size is unknown without context.
+ * We cannot safely convert these without user input.
+ */
+const VARIABLE_MULTIPLIER_UNITS = new Set([
+  'cx', 'caixa', 'caixas', 'box', 'boxes',
+  'pkt', 'pk', 'pacote', 'pacotes', 'pack', 'packs',
+  'saco', 'sacos', 'bag', 'bags',
+]);
+
+/**
+ * applyUnitConversion — client-side safety net for unit conversion.
+ *
+ * Given raw quantity + raw unit from the AI:
+ * 1. If already in a base unit → return as-is.
+ * 2. If known fixed multiplier (dúzia=12, par=2) → multiply quantity, set unit=uni.
+ * 3. If variable multiplier unit (caixa, pacote, etc.) → flag needsConversion=true.
+ * 4. Otherwise → normalizeUnit(), quantity unchanged.
+ *
+ * Returns { quantity, unit, needsConversion, conversionNote }
+ */
+export const applyUnitConversion = (rawQuantity, rawUnit) => {
+  const qty = parseFloat(rawQuantity) || 0;
+  if (!rawUnit) {
+    return { quantity: qty, unit: 'uni', needsConversion: false, conversionNote: null };
+  }
+
+  const u = String(rawUnit).trim().toLowerCase();
+
+  // Already base unit — no conversion needed
+  if (ALLOWED_UNITS.some(a => a.toLowerCase() === u)) {
+    return {
+      quantity: qty,
+      unit: ALLOWED_UNITS.find(a => a.toLowerCase() === u),
+      needsConversion: false,
+      conversionNote: null,
+    };
+  }
+
+  // Known fixed multipliers (dúzia, par, etc.)
+  const fixedMultiplier = KNOWN_MULTIPLIERS[u];
+  if (fixedMultiplier) {
+    const converted = Math.round(qty * fixedMultiplier * 10000) / 10000;
+    return {
+      quantity: converted,
+      unit: 'uni',
+      needsConversion: false,
+      conversionNote: `${qty} ${rawUnit} × ${fixedMultiplier} = ${converted} uni`,
+    };
+  }
+
+  // Variable multiplier units — cannot convert without user input
+  if (VARIABLE_MULTIPLIER_UNITS.has(u)) {
+    return {
+      quantity: qty,
+      unit: 'uni',
+      needsConversion: true,
+      conversionNote: `Multiplicador desconhecido para "${rawUnit}" — confirme a quantidade total`,
+    };
+  }
+
+  // Generic normalization (Kg, L, ml, etc. aliases)
+  const normalized = normalizeUnit(rawUnit);
+  return {
+    quantity: qty,
+    unit: normalized || 'uni',
+    needsConversion: !normalized,
+    conversionNote: normalized ? null : `Unidade "${rawUnit}" não reconhecida — confirme`,
+  };
+};
+
 export const INGREDIENT_CATEGORIES = [
   'Carnes', 'Vegetais', 'Frutas', 'Laticínios', 'Grãos', 'Temperos', 'Bebidas', 'Outros'
 ];

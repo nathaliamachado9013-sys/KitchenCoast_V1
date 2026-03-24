@@ -20,7 +20,7 @@ import {
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';
 import { uploadInvoiceFile, validateInvoiceFile, getCloudinaryThumbnailUrl } from '../lib/invoiceStorage';
-import { formatCurrency, normalizeUnit, ALLOWED_UNITS } from '../lib/utils';
+import { formatCurrency, normalizeUnit, ALLOWED_UNITS, applyUnitConversion } from '../lib/utils';
 
 const ACCEPTED_TYPES = 'image/*,application/pdf';
 
@@ -164,19 +164,31 @@ const PurchasesPage = () => {
 
       setReviewLines((result.items || []).map((item, idx) => {
         // Normalize unit to official system units (g, ml, L, Kg, uni)
-        const rawUnit = item.unit || '';
-        const normalizedUnit = normalizeUnit(rawUnit) || rawUnit;
+        // Apply unit conversion (AI may already have done this; this is the safety net)
+        const aiNeedsConversion = item.needs_conversion === true;
+        const conv = applyUnitConversion(item.quantity, item.unit);
+        // Honour AI flag if it raised one even if client-side didn't catch it
+        const needsConversion = aiNeedsConversion || conv.needsConversion;
+        const conversionNote = item.conversion_note || conv.conversionNote || null;
+
         return {
           _id: idx,
           rawDescription: item.raw_description || '',
           suggestedName: item.suggested_name || item.raw_description || '',
-          quantity: item.quantity != null ? String(item.quantity) : '',
-          unit: normalizedUnit,
+          quantity: conv.quantity != null ? String(conv.quantity) : '',
+          unit: conv.unit || 'uni',
           unitPrice: item.unit_price != null ? String(item.unit_price) : '',
           lineTotal: item.line_total != null ? String(item.line_total) : '',
           itemType: item.suggested_item_type || 'unknown',
           linkedItemId: null,
           createNew: false,
+          needsConversion,
+          conversionNote,
+          // Preserve original values so user can see what was converted
+          _origQuantity: item.quantity,
+          _origUnit: item.unit,
+          // Multiplier for user to fill in when needsConversion is true
+          userMultiplier: '',
         };
       }));
 
@@ -546,8 +558,31 @@ const PurchasesPage = () => {
     const unlinkedStockLines = stockLines.filter(l => !l.linkedItemId && !l.createNew);
     const ignoredLines = reviewLines.filter(l => l.itemType === 'ignore');
     const readyStockLines = stockLines.filter(l => l.linkedItemId || l.createNew);
-    const unresolvedCount = unknownLines.length + unlinkedStockLines.length + (!selectedSupplier ? 1 : 0);
-    const canImport = !isSaving && !!selectedSupplier && unknownLines.length === 0 && unlinkedStockLines.length === 0 && !duplicateWarning;
+    // Lines that need user-confirmed unit conversion (variable multiplier units)
+    const pendingConversionLines = reviewLines.filter(l => l.needsConversion && l.itemType !== 'ignore');
+    const unresolvedCount = unknownLines.length + unlinkedStockLines.length + pendingConversionLines.length + (!selectedSupplier ? 1 : 0);
+    const canImport = !isSaving && !!selectedSupplier && unknownLines.length === 0 && unlinkedStockLines.length === 0 && pendingConversionLines.length === 0 && !duplicateWarning;
+
+    // Apply a user-entered multiplier to resolve a conversion-pending line
+    const applyUserMultiplier = (idx) => {
+      setReviewLines(prev => prev.map((l, i) => {
+        if (i !== idx) return l;
+        const multiplier = parseFloat(l.userMultiplier);
+        if (!multiplier || multiplier <= 0) return l;
+        const origQty = parseFloat(l._origQuantity) || parseFloat(l.quantity) || 0;
+        const converted = Math.round(origQty * multiplier * 10000) / 10000;
+        const lt = parseFloat(l.lineTotal) || 0;
+        const newUnitPrice = converted > 0 && lt > 0 ? String(Math.round(lt / converted * 10000) / 10000) : l.unitPrice;
+        return {
+          ...l,
+          quantity: String(converted),
+          unitPrice: newUnitPrice,
+          needsConversion: false,
+          conversionNote: `${origQty} × ${multiplier} = ${converted} ${l.unit} (confirmado pelo usuário)`,
+          userMultiplier: '',
+        };
+      }));
+    };
 
     const getLineStatus = (line) => {
       if (line.itemType === 'ignore') return { label: 'Ignorado', cls: 'bg-gray-100 text-gray-500', Icon: EyeOff };
@@ -762,7 +797,7 @@ const PurchasesPage = () => {
               </span>
               <span className="text-muted-foreground">ignorados</span>
             </div>
-            {unresolvedCount > 0 && (
+            {(unknownLines.length + unlinkedStockLines.length) > 0 && (
               <>
                 <span className="text-muted-foreground/40">·</span>
                 <div className="flex items-center gap-1.5 text-sm">
@@ -770,6 +805,17 @@ const PurchasesPage = () => {
                     {unknownLines.length + unlinkedStockLines.length}
                   </span>
                   <span className="text-amber-700 font-medium">pendentes</span>
+                </div>
+              </>
+            )}
+            {pendingConversionLines.length > 0 && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <div className="flex items-center gap-1.5 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-xs font-bold">
+                    {pendingConversionLines.length}
+                  </span>
+                  <span className="text-orange-700 font-medium">conversão pendente</span>
                 </div>
               </>
             )}
@@ -805,6 +851,52 @@ const PurchasesPage = () => {
                       {statusLabel}
                     </span>
                   </div>
+
+                  {/* Conversion pending warning */}
+                  {line.needsConversion && (
+                    <div className="mb-3 rounded-md border border-orange-200 bg-orange-50 p-3 flex flex-col gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-orange-700">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        Conversão de unidade pendente
+                      </div>
+                      {line.conversionNote && (
+                        <p className="text-xs text-orange-600">{line.conversionNote}</p>
+                      )}
+                      <p className="text-xs text-orange-600">
+                        Informe quantas <strong>{line.unit}</strong> tem em cada embalagem para calcular a quantidade total corretamente.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {line._origQuantity ?? line.quantity} emb. ×
+                        </span>
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          className="h-8 w-28 text-sm"
+                          placeholder="ex: 12"
+                          value={line.userMultiplier}
+                          onChange={e => updateLine(idx, 'userMultiplier', e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && applyUserMultiplier(idx)}
+                        />
+                        <span className="text-xs text-muted-foreground shrink-0">{line.unit}/emb.</span>
+                        <button
+                          onClick={() => applyUserMultiplier(idx)}
+                          disabled={!parseFloat(line.userMultiplier)}
+                          className="text-xs px-3 py-1.5 rounded-md bg-orange-600 text-white font-medium disabled:opacity-40 hover:bg-orange-700 transition-colors"
+                        >
+                          Confirmar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Conversion note (resolved) */}
+                  {!line.needsConversion && line.conversionNote && (
+                    <div className="mb-2 text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded px-2.5 py-1.5">
+                      ✓ Convertido: {line.conversionNote}
+                    </div>
+                  )}
 
                   {/* Row B: editable name + type selector */}
                   <div className="flex flex-col sm:flex-row gap-3 mb-4">
