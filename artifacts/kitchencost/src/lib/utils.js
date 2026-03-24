@@ -73,25 +73,72 @@ const VARIABLE_MULTIPLIER_UNITS = new Set([
 ]);
 
 /**
+ * parseSafeNumber — parse a quantity value that may arrive as:
+ *   - a JS number (0.5, 12, 500)
+ *   - a numeric string ("12", "0.5")
+ *   - a fraction string ("1/2", "3/4") — valid in invoices, invalid in JSON but
+ *     some AI models return them inside strings
+ *   - null / undefined / anything else → returns 0 (never NaN or undefined)
+ */
+export const parseSafeNumber = (v) => {
+  if (v == null) return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  const str = String(v).trim();
+  // IMPORTANT: check for fraction BEFORE parseFloat.
+  // parseFloat("1/2") returns 1 (reads "1", stops at "/") — not NaN.
+  // So we must detect the slash first.
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 2) {
+      const num = parseFloat(parts[0]);
+      const den = parseFloat(parts[1]);
+      if (!isNaN(num) && !isNaN(den) && den !== 0) return Math.round((num / den) * 10000) / 10000;
+    }
+    return 0; // malformed fraction
+  }
+  const n = parseFloat(str);
+  return isNaN(n) ? 0 : n;
+};
+
+/**
+ * UNIT_SCALE_CONVERSIONS: units with a known multiplicative factor to a base unit.
+ * These are NOT pack/count multipliers — they are metric sub-units.
+ * e.g. cl (centiliter) → ml: factor = 10 (1 cl = 10 ml)
+ */
+const UNIT_SCALE_CONVERSIONS = {
+  // Volume sub-units
+  'cl': { factor: 10, targetUnit: 'ml' },   // centiliter → milliliter
+  'dl': { factor: 100, targetUnit: 'ml' },  // deciliter  → milliliter
+  // Mass sub-units (rare on invoices but valid)
+  'mg': { factor: 0.001, targetUnit: 'g' }, // milligram  → gram
+};
+
+/**
  * applyUnitConversion — client-side safety net for unit conversion.
  *
- * Given raw quantity + raw unit from the AI:
- * 1. If already in a base unit → return as-is.
- * 2. If known fixed multiplier (dúzia=12, par=2) → multiply quantity, set unit=uni.
- * 3. If variable multiplier unit (caixa, pacote, etc.) → flag needsConversion=true.
- * 4. Otherwise → normalizeUnit(), quantity unchanged.
+ * Given raw quantity + raw unit from the AI, returns a fully resolved
+ * { quantity, unit, needsConversion, conversionNote }.
  *
- * Returns { quantity, unit, needsConversion, conversionNote }
+ * Decision tree:
+ *  1. Parse quantity safely (handles fractions like "1/2").
+ *  2. Already a base unit (g, ml, L, Kg, uni) → return as-is.
+ *  3. Metric sub-unit with known scale factor (cl, dl, mg) → multiply.
+ *  4. Fixed count multiplier (dúzia×12, par×2) → multiply, unit=uni.
+ *  5. Variable multiplier unit (cx, pacote, saco, pack) → flag for user.
+ *     Unit left as null so the user MUST select target unit + enter qty.
+ *  6. Generic alias → normalizeUnit(); flag if unknown.
  */
 export const applyUnitConversion = (rawQuantity, rawUnit) => {
-  const qty = parseFloat(rawQuantity) || 0;
+  // Bug-fix 1: never use parseFloat directly — fractions like "1/2" become NaN
+  const qty = parseSafeNumber(rawQuantity);
+
   if (!rawUnit) {
     return { quantity: qty, unit: 'uni', needsConversion: false, conversionNote: null };
   }
 
   const u = String(rawUnit).trim().toLowerCase();
 
-  // Already base unit — no conversion needed
+  // Step 2: already a canonical base unit
   if (ALLOWED_UNITS.some(a => a.toLowerCase() === u)) {
     return {
       quantity: qty,
@@ -101,7 +148,19 @@ export const applyUnitConversion = (rawQuantity, rawUnit) => {
     };
   }
 
-  // Known fixed multipliers (dúzia, par, etc.)
+  // Bug-fix 2: metric sub-units (cl → ml ×10, dl → ml ×100, mg → g ×0.001)
+  const scale = UNIT_SCALE_CONVERSIONS[u];
+  if (scale) {
+    const converted = Math.round(qty * scale.factor * 10000) / 10000;
+    return {
+      quantity: converted,
+      unit: scale.targetUnit,
+      needsConversion: false,
+      conversionNote: `${qty} ${rawUnit} × ${scale.factor} = ${converted} ${scale.targetUnit}`,
+    };
+  }
+
+  // Step 4: fixed count multipliers (dúzia, par, dozen)
   const fixedMultiplier = KNOWN_MULTIPLIERS[u];
   if (fixedMultiplier) {
     const converted = Math.round(qty * fixedMultiplier * 10000) / 10000;
@@ -113,23 +172,25 @@ export const applyUnitConversion = (rawQuantity, rawUnit) => {
     };
   }
 
-  // Variable multiplier units — cannot convert without user input
+  // Bug-fix 3: variable multiplier units — do NOT default unit to 'uni'.
+  // Leave unit as null so the review UI forces the user to pick the correct
+  // target unit (could be Kg, L, uni, etc.) before entering the multiplier.
   if (VARIABLE_MULTIPLIER_UNITS.has(u)) {
     return {
       quantity: qty,
-      unit: 'uni',
+      unit: null, // user must select target unit
       needsConversion: true,
-      conversionNote: `Multiplicador desconhecido para "${rawUnit}" — confirme a quantidade total`,
+      conversionNote: `Unidade "${rawUnit}" é uma embalagem — selecione a unidade final (Kg, L, uni…) e informe a quantidade por embalagem`,
     };
   }
 
-  // Generic normalization (Kg, L, ml, etc. aliases)
+  // Step 6: generic alias normalization
   const normalized = normalizeUnit(rawUnit);
   return {
     quantity: qty,
-    unit: normalized || 'uni',
+    unit: normalized || null,
     needsConversion: !normalized,
-    conversionNote: normalized ? null : `Unidade "${rawUnit}" não reconhecida — confirme`,
+    conversionNote: normalized ? null : `Unidade "${rawUnit}" não reconhecida — selecione a unidade correta`,
   };
 };
 

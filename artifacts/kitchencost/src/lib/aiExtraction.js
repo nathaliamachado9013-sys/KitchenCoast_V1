@@ -17,26 +17,35 @@ You must NEVER return pack, box, caixa, pacote, saco, garrafa, dúzia, dz, cx, e
 Conversion rules:
 - dúzia / dz / dozen → multiply quantity by 12, unit = "uni"
 - par / pares / pair → multiply quantity by 2, unit = "uni"
-- cx / caixa / box + known size → multiply, set base unit
+- cx / caixa / box + known size → multiply, set base unit (Kg, L, uni, etc.)
 - saco / bag / pacote / pack + known size → multiply, set base unit
 - garrafa / bottle / lata / can → unit = "uni" (each container = 1 uni, unless liquid volume stated)
 - kg / kilo / quilograma → unit = "Kg"
 - g / gr / grama → unit = "g"
 - l / lt / litro → unit = "L"
 - ml / mililitro → unit = "ml"
+- cl / centilitro → multiply by 10, unit = "ml" (1 cl = 10 ml)
+- dl / decilitro → multiply by 100, unit = "ml" (1 dl = 100 ml)
 - un / und / unidade / unit / pc / pcs → unit = "uni"
+- Fraction quantities: "1/2" → 0.5, "3/4" → 0.75. ALWAYS return quantity as a decimal number.
+- "NxYunit" format: "12x33cl" → 12 units × 33 cl each = 396 cl = 3960 ml → quantity: 3960, unit: "ml"
+- "N × Y unit" format: "4 × 30g" → quantity: 120, unit: "g"
 
 Examples of correct conversion:
-  "15 dúzias ovos" → quantity: 180, unit: "uni", conversion_note: "15 dz × 12 = 180 uni"
-  "2 packs 12 pães" → quantity: 24, unit: "uni", conversion_note: "2 packs × 12 = 24 uni"
-  "3 sacos 2.5 Kg grelos" → quantity: 7.5, unit: "Kg", conversion_note: "3 × 2.5 Kg = 7.5 Kg"
-  "4 emb. 30g salsa" → quantity: 120, unit: "g", conversion_note: "4 × 30 g = 120 g"
-  "2 cx 5L maionese" → quantity: 10, unit: "L", conversion_note: "2 × 5 L = 10 L"
-  "24 garrafas Coca" → quantity: 24, unit: "uni", conversion_note: "24 uni"
-  "500g tomate" → quantity: 500, unit: "g", conversion_note: null
+  "15 dúzias ovos"      → quantity: 180,  unit: "uni", conversion_note: "15 dz × 12 = 180 uni"
+  "2 packs 12 pães"     → quantity: 24,   unit: "uni", conversion_note: "2 packs × 12 = 24 uni"
+  "3 sacos 2.5 Kg"      → quantity: 7.5,  unit: "Kg",  conversion_note: "3 × 2.5 Kg = 7.5 Kg"
+  "4 emb. 30g salsa"    → quantity: 120,  unit: "g",   conversion_note: "4 × 30 g = 120 g"
+  "2 cx 5L maionese"    → quantity: 10,   unit: "L",   conversion_note: "2 × 5 L = 10 L"
+  "12x33cl refrigerante"→ quantity: 3960, unit: "ml",  conversion_note: "12 × 33 cl × 10 = 3960 ml"
+  "pack 6x1L azeite"    → quantity: 6,    unit: "L",   conversion_note: "6 × 1 L = 6 L"
+  "cx 2kg farinha"      → quantity: 2,    unit: "Kg",  conversion_note: "1 cx × 2 Kg = 2 Kg"
+  "1/2 kg tomate"       → quantity: 0.5,  unit: "Kg",  conversion_note: null
+  "aprox. 500g carne"   → quantity: 500,  unit: "g",   conversion_note: null
+  "24 garrafas Coca"    → quantity: 24,   unit: "uni", conversion_note: "24 uni"
 
-If you CANNOT determine the multiplier (e.g., "3 caixas" with no size indicated):
-  → set unit = "uni" (best guess), needs_conversion = true, conversion_note = "Multiplier unknown"
+If you CANNOT determine the multiplier (e.g., "3 caixas" with no size indicated at all):
+  → set unit = "uni" (best guess), needs_conversion = true, conversion_note = "Multiplier unknown — box size not stated"
 
 Return this exact JSON structure:
 {

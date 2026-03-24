@@ -563,16 +563,21 @@ const PurchasesPage = () => {
     const unresolvedCount = unknownLines.length + unlinkedStockLines.length + pendingConversionLines.length + (!selectedSupplier ? 1 : 0);
     const canImport = !isSaving && !!selectedSupplier && unknownLines.length === 0 && unlinkedStockLines.length === 0 && pendingConversionLines.length === 0 && !duplicateWarning;
 
-    // Apply a user-entered multiplier to resolve a conversion-pending line
+    // Apply a user-entered multiplier to resolve a conversion-pending line.
+    // Requires: unit must be selected (not null) AND multiplier > 0.
     const applyUserMultiplier = (idx) => {
       setReviewLines(prev => prev.map((l, i) => {
         if (i !== idx) return l;
+        if (!l.unit) return l; // unit must be selected first
         const multiplier = parseFloat(l.userMultiplier);
         if (!multiplier || multiplier <= 0) return l;
-        const origQty = parseFloat(l._origQuantity) || parseFloat(l.quantity) || 0;
+        // Use parseSafeNumber-safe origQty (fixes fraction-string edge case)
+        const origQty = parseFloat(l._origQuantity ?? l.quantity) || 0;
         const converted = Math.round(origQty * multiplier * 10000) / 10000;
         const lt = parseFloat(l.lineTotal) || 0;
-        const newUnitPrice = converted > 0 && lt > 0 ? String(Math.round(lt / converted * 10000) / 10000) : l.unitPrice;
+        const newUnitPrice = converted > 0 && lt > 0
+          ? String(Math.round(lt / converted * 10000) / 10000)
+          : l.unitPrice;
         return {
           ...l,
           quantity: String(converted),
@@ -857,32 +862,47 @@ const PurchasesPage = () => {
                     <div className="mb-3 rounded-md border border-orange-200 bg-orange-50 p-3 flex flex-col gap-2">
                       <div className="flex items-center gap-1.5 text-xs font-medium text-orange-700">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                        Conversão de unidade pendente
+                        Conversão de embalagem pendente
                       </div>
                       {line.conversionNote && (
                         <p className="text-xs text-orange-600">{line.conversionNote}</p>
                       )}
+
+                      {/* Step 1: unit selection required when unit is null */}
+                      {!line.unit && (
+                        <p className="text-xs font-medium text-orange-700">
+                          ① Selecione a unidade final no campo <strong>Unidade</strong> abaixo (ex: Kg, L, uni).
+                        </p>
+                      )}
+
+                      {/* Step 2: multiplier input */}
                       <p className="text-xs text-orange-600">
-                        Informe quantas <strong>{line.unit}</strong> tem em cada embalagem para calcular a quantidade total corretamente.
+                        {line.unit
+                          ? <>② Informe quantas <strong>{line.unit}</strong> há em cada embalagem:</>
+                          : <>② Depois informe a quantidade por embalagem:</>
+                        }
                       </p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-muted-foreground shrink-0">
                           {line._origQuantity ?? line.quantity} emb. ×
                         </span>
                         <Input
                           type="number"
-                          step="1"
-                          min="1"
+                          step="any"
+                          min="0.001"
                           className="h-8 w-28 text-sm"
                           placeholder="ex: 12"
                           value={line.userMultiplier}
                           onChange={e => updateLine(idx, 'userMultiplier', e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && applyUserMultiplier(idx)}
+                          disabled={!line.unit}
                         />
-                        <span className="text-xs text-muted-foreground shrink-0">{line.unit}/emb.</span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {line.unit ? `${line.unit}/emb.` : '(selecione a unidade primeiro)'}
+                        </span>
                         <button
                           onClick={() => applyUserMultiplier(idx)}
-                          disabled={!parseFloat(line.userMultiplier)}
+                          disabled={!line.unit || !parseFloat(line.userMultiplier)}
                           className="text-xs px-3 py-1.5 rounded-md bg-orange-600 text-white font-medium disabled:opacity-40 hover:bg-orange-700 transition-colors"
                         >
                           Confirmar
