@@ -476,11 +476,32 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
   return { id: ref.id };
 };
 
+// FIXED: Validate stock availability before allowing exit
 export const createStockExit = async (restaurantId, data, ingredients) => {
   const ingredient = ingredients.find(i => i.id === data.ingredientId);
   if (!ingredient) throw new Error('Ingrediente não encontrado');
 
-  const newStock = Math.max(0, (ingredient.currentStock || 0) - data.quantity);
+  const currentStock = ingredient.currentStock || 0;
+  const minStock = ingredient.minStock || 0;
+
+  // Check if we have enough stock
+  if (currentStock < data.quantity) {
+    throw new Error(
+      `Estoque insuficiente para ${ingredient.name}. ` +
+      `Disponível: ${currentStock} ${ingredient.unit}, ` +
+      `Solicitado: ${data.quantity} ${ingredient.unit}`
+    );
+  }
+
+  // Check if removal would go below minimum stock
+  const newStock = currentStock - data.quantity;
+  if (newStock < minStock) {
+    throw new Error(
+      `Remoção levaria ${ingredient.name} abaixo do estoque mínimo. ` +
+      `Após remover: ${newStock} ${ingredient.unit}, ` +
+      `Mínimo: ${minStock} ${ingredient.unit}`
+    );
+  }
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', data.ingredientId), {
     currentStock: newStock,
