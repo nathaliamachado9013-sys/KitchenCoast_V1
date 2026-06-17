@@ -436,6 +436,45 @@ export const updateOperationalCosts = async (restaurantId, data) => {
   );
 };
 
+// ====================== PRICE HISTORY (AUDIT TRAIL) ======================
+
+// FIXED: Log ingredient price changes for audit trail
+const recordPriceChange = async (restaurantId, ingredientId, ingredientName, oldPrice, newPrice, reason = 'manual', userId = null) => {
+  try {
+    await addDoc(
+      collection(db, 'restaurants', restaurantId, 'ingredients', ingredientId, 'price_history'),
+      {
+        oldPrice,
+        newPrice,
+        change: Math.round((newPrice - oldPrice) * 100) / 100,
+        reason, // 'import' | 'manual' | 'adjustment'
+        changedBy: userId,
+        changedAt: serverTimestamp(),
+        ingredientName,
+      }
+    );
+  } catch (error) {
+    console.error('Error recording price change:', error);
+    // Don't throw - audit trail shouldn't block main operation
+  }
+};
+
+// Get price history for an ingredient
+export const getPriceHistory = async (restaurantId, ingredientId, limit_count = 50) => {
+  try {
+    const q = query(
+      collection(db, 'restaurants', restaurantId, 'ingredients', ingredientId, 'price_history'),
+      orderBy('changedAt', 'desc'),
+      limit(limit_count)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.error('Error fetching price history:', error);
+    return [];
+  }
+};
+
 // ====================== STOCK ======================
 
 export const getStockMovements = async (restaurantId) => {
@@ -457,6 +496,7 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
 
   // FIXED: Calculate proper weighted average cost and round to 2 decimal places
   let newCost;
+  const oldCost = ingredient.costPerUnit || 0;
   if (data.unitCost !== undefined && data.unitCost !== null) {
     if (newStock > 0) {
       const currentCost = ingredient.costPerUnit || 0;
@@ -484,6 +524,11 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
+
+  // FIXED: Record price change in audit trail
+  if (newCost !== oldCost) {
+    await recordPriceChange(restaurantId, data.ingredientId, ingredient.name, oldCost, newCost, 'manual');
+  }
 
   // FIXED: Auto-recalculate recipes that use this ingredient
   if (data.unitCost !== undefined && data.unitCost !== null) {
@@ -1201,6 +1246,11 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
       notes: `Importado da nota fiscal — ${rawDescription || confirmedName || ''}`,
       createdAt: serverTimestamp(),
     });
+
+    // FIXED: Record price change in audit trail
+    if (newAvgCost !== currentAvgCost) {
+      await recordPriceChange(restaurantId, linkedItemId, current.name, currentAvgCost, newAvgCost, 'import');
+    }
 
     // FIXED: Auto-recalculate recipes that use this ingredient
     await recalculateAffectedRecipes(restaurantId, linkedItemId);
