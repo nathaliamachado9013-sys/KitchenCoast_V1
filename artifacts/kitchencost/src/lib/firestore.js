@@ -235,7 +235,25 @@ export const updateIngredient = async (restaurantId, ingredientId, data) => {
 };
 
 export const deleteIngredient = async (restaurantId, ingredientId) => {
-  await deleteDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId));
+  // Delete ingredient and all its stock movements atomically
+  await runTransaction(db, async (transaction) => {
+    // Get all movements for this ingredient
+    const movementsSnapshot = await transaction.get(
+      query(
+        collection(db, 'restaurants', restaurantId, 'stock_movements'),
+        where('ingredientId', '==', ingredientId)
+      )
+    );
+
+    // Delete each movement
+    movementsSnapshot.docs.forEach((doc) => {
+      transaction.delete(doc.ref);
+    });
+
+    // Delete the ingredient itself
+    const ingredientRef = doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId);
+    transaction.delete(ingredientRef);
+  });
 };
 
 export const getLowStockIngredients = async (restaurantId) => {
