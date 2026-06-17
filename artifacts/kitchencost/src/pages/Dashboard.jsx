@@ -5,6 +5,7 @@ import {
   getDashboardSummary,
   getLowStockIngredients,
   getMenuProfitability,
+  listenToDashboardSummary,
 } from '../lib/firestore';
 import { formatCurrency } from '../lib/utils';
 import { ShoppingBasket, BookOpen, Truck, AlertTriangle, DollarSign, TrendingUp, Loader2, Package, Star } from 'lucide-react';
@@ -20,25 +21,51 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (!restaurant?.restaurantId) return;
-    loadData();
-  }, [restaurant]);
 
-  const loadData = async () => {
-    try {
-      const [summaryData, alerts, profitData] = await Promise.all([
-        getDashboardSummary(restaurant.restaurantId),
-        getLowStockIngredients(restaurant.restaurantId),
-        getMenuProfitability(restaurant.restaurantId, 'month'),
-      ]);
-      setSummary(summaryData);
-      setLowStock(alerts);
-      setTopProfitable(profitData.topProfitable || []);
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // FIXED: Set up real-time listeners for dashboard updates
+    let unsubscribeDashboard = null;
+    let unsubscribeAlerts = null;
+    let unsubscribeProfits = null;
+
+    const setupListeners = async () => {
+      try {
+        // Initial load
+        const [summaryData, alerts, profitData] = await Promise.all([
+          getDashboardSummary(restaurant.restaurantId),
+          getLowStockIngredients(restaurant.restaurantId),
+          getMenuProfitability(restaurant.restaurantId, 'month'),
+        ]);
+        setSummary(summaryData);
+        setLowStock(alerts);
+        setTopProfitable(profitData.topProfitable || []);
+        setLoading(false);
+
+        // Listen to real-time dashboard updates
+        unsubscribeDashboard = listenToDashboardSummary(
+          restaurant.restaurantId,
+          (updatedSummary) => {
+            setSummary(updatedSummary);
+          }
+        );
+
+        // TODO: Add real-time listeners for alerts and profits
+        // unsubscribeAlerts = listenToLowStockIngredients(...)
+        // unsubscribeProfits = listenToMenuProfitability(...)
+      } catch (error) {
+        console.error('Error loading dashboard:', error);
+        setLoading(false);
+      }
+    };
+
+    setupListeners();
+
+    // Cleanup listeners on unmount
+    return () => {
+      if (unsubscribeDashboard) unsubscribeDashboard();
+      if (unsubscribeAlerts) unsubscribeAlerts();
+      if (unsubscribeProfits) unsubscribeProfits();
+    };
+  }, [restaurant]);
 
   if (loading) return (
     <Layout title="Dashboard">

@@ -13,6 +13,7 @@ import {
   limit,
   serverTimestamp,
   runTransaction,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { generateId, convertUnits, canConvert, assertCanConvert } from './utils';
@@ -883,6 +884,53 @@ export const getDashboardSummary = async (restaurantId) => {
     averageMargin: Math.round(averageMargin * 10) / 10,
     monthRevenue: monthSales.reduce((s, sale) => s + (sale.revenue || 0), 0),
     monthProfit: monthSales.reduce((s, sale) => s + (sale.profit || 0), 0),
+  };
+};
+
+// FIXED: Real-time dashboard updates using Firestore listeners
+export const listenToDashboardSummary = (restaurantId, onUpdate) => {
+  // Subscribe to real-time updates for critical collections
+  const unsubscribers = [];
+
+  // Listen to sales for revenue/profit changes
+  const salesQuery = query(
+    collection(db, 'restaurants', restaurantId, 'sales'),
+    orderBy('createdAt', 'desc'),
+    limit(1000)
+  );
+  unsubscribers.push(
+    onSnapshot(salesQuery, async () => {
+      // When sales change, recalculate dashboard
+      const summary = await getDashboardSummary(restaurantId);
+      onUpdate(summary);
+    })
+  );
+
+  // Listen to productions for cost changes
+  const productionsQuery = query(
+    collection(db, 'restaurants', restaurantId, 'productions'),
+    orderBy('createdAt', 'desc'),
+    limit(1000)
+  );
+  unsubscribers.push(
+    onSnapshot(productionsQuery, async () => {
+      const summary = await getDashboardSummary(restaurantId);
+      onUpdate(summary);
+    })
+  );
+
+  // Listen to ingredients for inventory value changes
+  const ingredientsQuery = collection(db, 'restaurants', restaurantId, 'ingredients');
+  unsubscribers.push(
+    onSnapshot(ingredientsQuery, async () => {
+      const summary = await getDashboardSummary(restaurantId);
+      onUpdate(summary);
+    })
+  );
+
+  // Return unsubscribe function to clean up listeners
+  return () => {
+    unsubscribers.forEach(unsub => unsub());
   };
 };
 
