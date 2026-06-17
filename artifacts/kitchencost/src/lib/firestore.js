@@ -172,6 +172,32 @@ export const getIngredients = async (restaurantId, filters = {}) => {
   return items;
 };
 
+// FIXED: Paginated version of getIngredients for better performance with many ingredients
+export const getPaginatedIngredients = async (restaurantId, pageSize = 50, startAfterDoc = null) => {
+  let q;
+  if (startAfterDoc) {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'ingredients'),
+      orderBy('name'),
+      startAfter(startAfterDoc),
+      limit(pageSize + 1)
+    );
+  } else {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'ingredients'),
+      orderBy('name'),
+      limit(pageSize + 1)
+    );
+  }
+
+  const snap = await getDocs(q);
+  const items = snap.docs.slice(0, pageSize).map(d => ({ id: d.id, ...d.data() }));
+  const hasMore = snap.docs.length > pageSize;
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+
+  return { items, lastDoc, hasMore };
+};
+
 export const createIngredient = async (restaurantId, data) => {
   const { restaurantId: _r, ...cleanData } = data;
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'ingredients'), {
@@ -274,6 +300,32 @@ export const getRecipes = async (restaurantId, filters = {}) => {
     items = items.filter(r => r.category === filters.category);
   }
   return items;
+};
+
+// FIXED: Paginated version of getRecipes for better performance with many recipes
+export const getPaginatedRecipes = async (restaurantId, pageSize = 50, startAfterDoc = null) => {
+  let q;
+  if (startAfterDoc) {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'recipes'),
+      orderBy('name'),
+      startAfter(startAfterDoc),
+      limit(pageSize + 1) // +1 to check if there are more
+    );
+  } else {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'recipes'),
+      orderBy('name'),
+      limit(pageSize + 1)
+    );
+  }
+
+  const snap = await getDocs(q);
+  const items = snap.docs.slice(0, pageSize).map(d => ({ id: d.id, ...d.data() }));
+  const hasMore = snap.docs.length > pageSize;
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+
+  return { items, lastDoc, hasMore };
 };
 
 export const createRecipe = async (restaurantId, data, ingredients = [], opCostPerDish = 0) => {
@@ -765,6 +817,32 @@ export const getMenuItems = async (restaurantId) => {
   );
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+// FIXED: Paginated version of getMenuItems for better performance with many menu items
+export const getPaginatedMenuItems = async (restaurantId, pageSize = 50, startAfterDoc = null) => {
+  let q;
+  if (startAfterDoc) {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'menu_items'),
+      orderBy('name'),
+      startAfter(startAfterDoc),
+      limit(pageSize + 1)
+    );
+  } else {
+    q = query(
+      collection(db, 'restaurants', restaurantId, 'menu_items'),
+      orderBy('name'),
+      limit(pageSize + 1)
+    );
+  }
+
+  const snap = await getDocs(q);
+  const items = snap.docs.slice(0, pageSize).map(d => ({ id: d.id, ...d.data() }));
+  const hasMore = snap.docs.length > pageSize;
+  const lastDoc = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+
+  return { items, lastDoc, hasMore };
 };
 
 export const createMenuItem = async (restaurantId, data) => {
