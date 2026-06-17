@@ -329,6 +329,51 @@ export const recalculateAllRecipes = async (restaurantId, operationalCosts) => {
   return recipes.length;
 };
 
+// ====================== RECIPE RECALCULATION ======================
+
+// FIXED: Auto-recalculate recipes that use a specific ingredient when its price changes
+export const recalculateAffectedRecipes = async (restaurantId, ingredientId) => {
+  try {
+    const recipes = await getRecipes(restaurantId);
+    const ingredients = await getIngredients(restaurantId);
+    const operationalCosts = await getOperationalCosts(restaurantId);
+
+    // Calculate opCostPerDish
+    const totalMonthly =
+      (operationalCosts?.rent || 0) +
+      (operationalCosts?.electricity || 0) +
+      (operationalCosts?.water || 0) +
+      (operationalCosts?.internet || 0) +
+      (operationalCosts?.salaries || 0) +
+      (operationalCosts?.accounting || 0) +
+      (operationalCosts?.taxes || 0) +
+      (operationalCosts?.otherCosts || 0);
+    const avgDishes = operationalCosts?.averageDishesPerMonth || 1;
+    const opCostPerDish = totalMonthly / avgDishes;
+
+    // Find recipes that use this ingredient
+    const affectedRecipes = recipes.filter(recipe =>
+      recipe.ingredients?.some(ing => ing.ingredientId === ingredientId)
+    );
+
+    if (affectedRecipes.length === 0) return;
+
+    // Recalculate and update each affected recipe
+    const updates = affectedRecipes.map(recipe => {
+      const costs = calculateRecipeCost(recipe, ingredients, opCostPerDish);
+      return updateDoc(doc(db, 'restaurants', restaurantId, 'recipes', recipe.id), {
+        ...costs,
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await Promise.all(updates);
+  } catch (error) {
+    console.error('Error recalculating affected recipes:', error);
+    throw error;
+  }
+};
+
 // ====================== OPERATIONAL COSTS ======================
 
 export const getOperationalCosts = async (restaurantId) => {
@@ -380,6 +425,12 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
     notes: data.reason || data.notes || '',
     createdAt: serverTimestamp(),
   });
+
+  // FIXED: Auto-recalculate recipes that use this ingredient
+  if (data.unitCost !== undefined && data.unitCost !== null) {
+    await recalculateAffectedRecipes(restaurantId, data.ingredientId);
+  }
+
   return { id: ref.id };
 };
 
@@ -993,6 +1044,9 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
       notes: `Importado da nota fiscal — ${rawDescription || confirmedName || ''}`,
       createdAt: serverTimestamp(),
     });
+
+    // FIXED: Auto-recalculate recipes that use this ingredient
+    await recalculateAffectedRecipes(restaurantId, linkedItemId);
   }
 
   if (itemType === 'resale_product') {
