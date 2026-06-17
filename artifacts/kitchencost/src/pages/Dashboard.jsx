@@ -6,6 +6,8 @@ import {
   getLowStockIngredients,
   getMenuProfitability,
   listenToDashboardSummary,
+  listenToLowStockIngredients,
+  listenToMenuProfitability,
 } from '../lib/firestore';
 import { formatCurrency } from '../lib/utils';
 import { ShoppingBasket, BookOpen, Truck, AlertTriangle, DollarSign, TrendingUp, Loader2, Package, Star } from 'lucide-react';
@@ -48,9 +50,21 @@ const Dashboard = () => {
           }
         );
 
-        // TODO: Add real-time listeners for alerts and profits
-        // unsubscribeAlerts = listenToLowStockIngredients(...)
-        // unsubscribeProfits = listenToMenuProfitability(...)
+        // Listen to real-time low stock alerts
+        unsubscribeAlerts = listenToLowStockIngredients(
+          restaurant.restaurantId,
+          (alerts) => {
+            setLowStock(alerts);
+          }
+        );
+
+        // Listen to real-time menu profitability
+        unsubscribeProfits = listenToMenuProfitability(
+          restaurant.restaurantId,
+          (profitData) => {
+            setTopProfitable(profitData.topProfitable || []);
+          }
+        );
       } catch (error) {
         console.error('Error loading dashboard:', error);
         setLoading(false);

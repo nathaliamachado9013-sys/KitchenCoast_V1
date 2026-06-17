@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { getIngredients, createIngredient, updateIngredient, deleteIngredient, getSuppliers } from '../lib/firestore';
+import { getIngredients, getPaginatedIngredients, createIngredient, updateIngredient, deleteIngredient, getSuppliers } from '../lib/firestore';
 import { formatCurrency, formatNumber, UNITS, INGREDIENT_CATEGORIES } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,9 @@ const IngredientsPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [paginationCursor, setPaginationCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const { toast } = useToast();
 
   const emptyForm = { name: '', unit: 'kg', costPerUnit: '', supplierId: '', currentStock: '0', minStock: '0', category: '', notes: '' };
@@ -32,14 +35,28 @@ const IngredientsPage = () => {
 
   const loadData = async () => {
     try {
-      const [ings, supps] = await Promise.all([
-        getIngredients(restaurant.restaurantId),
+      const [paginatedData, supps] = await Promise.all([
+        getPaginatedIngredients(restaurant.restaurantId, null, 50),
         getSuppliers(restaurant.restaurantId),
       ]);
-      setIngredients(ings);
+      setIngredients(paginatedData.items);
+      setPaginationCursor(paginatedData.lastDoc);
+      setHasMore(paginatedData.hasMore);
       setSuppliers(supps);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar ingredientes', variant: 'destructive' }); }
     finally { setLoading(false); }
+  };
+
+  const loadMore = async () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const paginatedData = await getPaginatedIngredients(restaurant.restaurantId, paginationCursor, 50);
+      setIngredients(prev => [...prev, ...paginatedData.items]);
+      setPaginationCursor(paginatedData.lastDoc);
+      setHasMore(paginatedData.hasMore);
+    } catch { toast({ title: 'Erro', description: 'Erro ao carregar mais ingredientes', variant: 'destructive' }); }
+    finally { setLoadingMore(false); }
   };
 
   const filtered = ingredients.filter(i => {
@@ -155,6 +172,14 @@ const IngredientsPage = () => {
               })}
             </tbody>
           </table>
+          {hasMore && (
+            <div className="px-4 py-3 border-t border-border/50 flex justify-center">
+              <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                {loadingMore ? 'Carregando...' : `Carregar mais (${ingredients.length} carregados)`}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

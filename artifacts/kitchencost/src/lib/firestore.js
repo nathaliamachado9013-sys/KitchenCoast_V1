@@ -1010,6 +1010,37 @@ export const getDashboardSummary = async (restaurantId) => {
   };
 };
 
+// FIXED: Real-time listener for low stock alerts
+export const listenToLowStockIngredients = (restaurantId, onUpdate) => {
+  const ingredientsQuery = collection(db, 'restaurants', restaurantId, 'ingredients');
+
+  return onSnapshot(ingredientsQuery, (snapshot) => {
+    const ingredients = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    const lowStockAlerts = ingredients.filter(i =>
+      (i.currentStock || 0) <= (i.minStock || 0)
+    );
+    onUpdate(lowStockAlerts);
+  });
+};
+
+// FIXED: Real-time listener for menu profitability
+export const listenToMenuProfitability = (restaurantId, onUpdate) => {
+  const salesQuery = query(
+    collection(db, 'restaurants', restaurantId, 'sales'),
+    orderBy('createdAt', 'desc'),
+    limit(1000)
+  );
+
+  return onSnapshot(salesQuery, async () => {
+    try {
+      const profitData = await getMenuProfitability(restaurantId, 'month');
+      onUpdate(profitData);
+    } catch (error) {
+      console.error('Error calculating menu profitability:', error);
+    }
+  });
+};
+
 // FIXED: Real-time dashboard updates using Firestore listeners
 export const listenToDashboardSummary = (restaurantId, onUpdate) => {
   // Subscribe to real-time updates for critical collections

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getRecipes, getResaleProducts, getMenuCategories, createMenuCategory } from '../lib/firestore';
+import { getMenuItems, getPaginatedMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getRecipes, getResaleProducts, getMenuCategories, createMenuCategory } from '../lib/firestore';
 import { formatCurrency, formatNumber } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,9 @@ const MenuPage = () => {
   const { toast } = useToast();
   const [newCatModal, setNewCatModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [paginationCursor, setPaginationCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const emptyForm = { name: '', description: '', itemType: 'recipe', recipeId: '', productId: '', salePrice: '', category: '', isAvailable: true };
   const [formData, setFormData] = useState(emptyForm);
@@ -34,15 +37,32 @@ const MenuPage = () => {
 
   const loadData = async () => {
     try {
-      const [items, recs, resale, cats] = await Promise.all([
-        getMenuItems(restaurant.restaurantId),
+      const [paginatedData, recs, resale, cats] = await Promise.all([
+        getPaginatedMenuItems(restaurant.restaurantId, null, 50),
         getRecipes(restaurant.restaurantId),
         getResaleProducts(restaurant.restaurantId),
         getMenuCategories(restaurant.restaurantId),
       ]);
-      setMenuItems(items); setRecipes(recs); setResaleProducts(resale); setCategories(cats);
+      setMenuItems(paginatedData.items);
+      setPaginationCursor(paginatedData.lastDoc);
+      setHasMore(paginatedData.hasMore);
+      setRecipes(recs);
+      setResaleProducts(resale);
+      setCategories(cats);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar cardápio', variant: 'destructive' }); }
     finally { setLoading(false); }
+  };
+
+  const loadMore = async () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const paginatedData = await getPaginatedMenuItems(restaurant.restaurantId, paginationCursor, 50);
+      setMenuItems(prev => [...prev, ...paginatedData.items]);
+      setPaginationCursor(paginatedData.lastDoc);
+      setHasMore(paginatedData.hasMore);
+    } catch { toast({ title: 'Erro', description: 'Erro ao carregar mais itens', variant: 'destructive' }); }
+    finally { setLoadingMore(false); }
   };
 
   const filtered = menuItems.filter(i => {
@@ -209,6 +229,14 @@ const MenuPage = () => {
               </div>
             </div>
           ))}
+          {hasMore && (
+            <div className="flex justify-center py-4">
+              <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                {loadingMore ? 'Carregando...' : `Carregar mais (${menuItems.length} carregados)`}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
