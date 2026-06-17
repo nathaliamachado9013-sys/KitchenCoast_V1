@@ -693,13 +693,17 @@ export const getSales = async (restaurantId) => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 
-export const createSale = async (restaurantId, data, menuItems) => {
+// FIXED: Now includes operationalCostPerDish in profit calculation for recipes
+export const createSale = async (restaurantId, data, menuItems, operationalCostPerDish = 0) => {
   const item = menuItems.find(m => m.id === data.itemId);
   if (!item) throw new Error('Item não encontrado no cardápio');
 
   const salePrice = data.salePrice !== undefined ? data.salePrice : (item.salePrice || 0);
-  const cost = item.cost || item.costPerPortion || 0;
-  const profit = (salePrice - cost) * data.quantitySold;
+  const baseCost = item.cost || item.costPerPortion || 0;
+
+  // FIXED: For recipes, include operational costs in the total cost
+  const actualCost = (item.itemType === 'recipe') ? baseCost + operationalCostPerDish : baseCost;
+  const profit = (salePrice - actualCost) * data.quantitySold;
   const revenue = salePrice * data.quantitySold;
 
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'sales'), {
@@ -709,7 +713,7 @@ export const createSale = async (restaurantId, data, menuItems) => {
     quantitySold: data.quantitySold,
     totalAmount: revenue,
     salePrice,
-    cost,
+    cost: actualCost,
     profit,
     revenue,
     salesChannel: data.salesChannel || '',

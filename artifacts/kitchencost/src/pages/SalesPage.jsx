@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { getSales, createSale, deleteSale, getMenuItems, getSalesSummary } from '../lib/firestore';
+import { getSales, createSale, deleteSale, getMenuItems, getSalesSummary, getOperationalCosts } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime, SALES_CHANNELS } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ const SalesPage = () => {
   const [sales, setSales] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [operationalCosts, setOperationalCosts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,12 +30,13 @@ const SalesPage = () => {
 
   const loadData = async () => {
     try {
-      const [salesData, items, sum] = await Promise.all([
+      const [salesData, items, sum, opCosts] = await Promise.all([
         getSales(restaurant.restaurantId),
         getMenuItems(restaurant.restaurantId),
         getSalesSummary(restaurant.restaurantId, 'today'),
+        getOperationalCosts(restaurant.restaurantId),
       ]);
-      setSales(salesData); setMenuItems(items); setSummary(sum);
+      setSales(salesData); setMenuItems(items); setSummary(sum); setOperationalCosts(opCosts);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar vendas', variant: 'destructive' }); }
     finally { setLoading(false); }
   };
@@ -43,6 +45,17 @@ const SalesPage = () => {
     const item = menuItems.find(m => m.id === itemId);
     if (item) setFormData(prev => ({ ...prev, itemId, salePrice: item.salePrice?.toString() || '' }));
   };
+
+  // FIXED: Calculate operational cost per dish
+  const opCostPerDish = (() => {
+    if (!operationalCosts) return 0;
+    const totalMonthly = (operationalCosts.rent || 0) + (operationalCosts.electricity || 0) +
+      (operationalCosts.water || 0) + (operationalCosts.internet || 0) +
+      (operationalCosts.salaries || 0) + (operationalCosts.accounting || 0) +
+      (operationalCosts.taxes || 0) + (operationalCosts.otherCosts || 0);
+    const avgDishes = operationalCosts.averageDishesPerMonth || 1;
+    return totalMonthly / avgDishes;
+  })();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -55,7 +68,7 @@ const SalesPage = () => {
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : undefined,
         salesChannel: formData.salesChannel || '',
         notes: formData.notes || '',
-      }, menuItems);
+      }, menuItems, opCostPerDish);
       toast({ title: 'Venda registrada!', description: `Lucro: ${formatCurrency(result.profit, currency)}` });
       setModalOpen(false);
       setFormData(emptyForm);
