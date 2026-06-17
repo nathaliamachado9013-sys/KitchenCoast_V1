@@ -294,6 +294,11 @@ export const updateRecipe = async (restaurantId, recipeId, data, ingredients = [
     ...costs,
     updatedAt: serverTimestamp(),
   });
+
+  // FIXED: Sync menu items with updated recipe cost
+  if (costs.costPerPortion !== undefined) {
+    await syncMenuItemsForRecipe(restaurantId, recipeId, costs.costPerPortion);
+  }
 };
 
 export const deleteRecipe = async (restaurantId, recipeId) => {
@@ -332,6 +337,28 @@ export const recalculateAllRecipes = async (restaurantId, operationalCosts) => {
 };
 
 // ====================== RECIPE RECALCULATION ======================
+
+// FIXED: Sync menu item costs with recipe when recipe cost changes
+export const syncMenuItemsForRecipe = async (restaurantId, recipeId, newCost) => {
+  try {
+    const menuItems = await getMenuItems(restaurantId);
+    const affectedItems = menuItems.filter(item => item.recipeId === recipeId);
+
+    if (affectedItems.length === 0) return;
+
+    const updates = affectedItems.map(item =>
+      updateDoc(doc(db, 'restaurants', restaurantId, 'menu_items', item.id), {
+        cost: newCost,
+        updatedAt: serverTimestamp(),
+      })
+    );
+
+    await Promise.all(updates);
+  } catch (error) {
+    console.error('Error syncing menu items:', error);
+    throw error;
+  }
+};
 
 // FIXED: Auto-recalculate recipes that use a specific ingredient when its price changes
 export const recalculateAffectedRecipes = async (restaurantId, ingredientId) => {
