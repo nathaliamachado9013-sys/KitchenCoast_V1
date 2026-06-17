@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { getProductions, registerProduction, deleteProduction, getRecipes, getIngredients, getProductionSummary } from '../lib/firestore';
+import { getProductions, registerProduction, deleteProduction, getRecipes, getIngredients, getProductionSummary, getOperationalCosts } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ const ProductionPage = () => {
   const [recipes, setRecipes] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [operationalCosts, setOperationalCosts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,18 +30,31 @@ const ProductionPage = () => {
 
   const loadData = async () => {
     try {
-      const [prods, recs, ings, sum] = await Promise.all([
+      const [prods, recs, ings, sum, opCosts] = await Promise.all([
         getProductions(restaurant.restaurantId),
         getRecipes(restaurant.restaurantId),
         getIngredients(restaurant.restaurantId),
         getProductionSummary(restaurant.restaurantId, 'today'),
+        getOperationalCosts(restaurant.restaurantId),
       ]);
-      setProductions(prods); setRecipes(recs); setIngredients(ings); setSummary(sum);
+      setProductions(prods); setRecipes(recs); setIngredients(ings); setSummary(sum); setOperationalCosts(opCosts);
     } catch { toast({ title: 'Erro', description: 'Erro ao carregar produções', variant: 'destructive' }); }
     finally { setLoading(false); }
   };
 
   const selectedRecipe = recipes.find(r => r.id === formData.recipeId);
+
+  // FIXED: Now includes operational costs in estimated cost
+  const opCostPerDish = (() => {
+    if (!operationalCosts) return 0;
+    const totalMonthly = (operationalCosts.rent || 0) + (operationalCosts.electricity || 0) +
+      (operationalCosts.water || 0) + (operationalCosts.internet || 0) +
+      (operationalCosts.salaries || 0) + (operationalCosts.accounting || 0) +
+      (operationalCosts.taxes || 0) + (operationalCosts.otherCosts || 0);
+    const avgDishes = operationalCosts.averageDishesPerMonth || 1;
+    return totalMonthly / avgDishes;
+  })();
+
   // FIX: Shows estimated cost using CURRENT ingredient prices, not cached value
   const estimatedCost = selectedRecipe
     ? (() => {
@@ -52,7 +66,7 @@ const ProductionPage = () => {
         }
         const yieldQty = selectedRecipe.yieldQuantity || 1;
         const variableTotal = (selectedRecipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
-        return (ingsCost / yieldQty + variableTotal) * (parseFloat(formData.quantity) || 1);
+        return (ingsCost / yieldQty + variableTotal + opCostPerDish) * (parseFloat(formData.quantity) || 1);
       })()
     : 0;
 
@@ -61,7 +75,7 @@ const ProductionPage = () => {
     if (!formData.recipeId || !formData.quantity) { toast({ title: 'Erro', description: 'Receita e quantidade são obrigatórios', variant: 'destructive' }); return; }
     setSaving(true);
     try {
-      const result = await registerProduction(restaurant.restaurantId, { recipeId: formData.recipeId, quantity: parseFloat(formData.quantity), notes: formData.notes }, recipes, ingredients);
+      const result = await registerProduction(restaurant.restaurantId, { recipeId: formData.recipeId, quantity: parseFloat(formData.quantity), notes: formData.notes }, recipes, ingredients, opCostPerDish);
       toast({ title: 'Produção registrada!', description: `${result.recipeName} — Custo: ${formatCurrency(result.totalCost, currency)}` });
       setModalOpen(false);
       setFormData({ recipeId: '', quantity: '1', notes: '' });

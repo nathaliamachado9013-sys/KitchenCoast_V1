@@ -420,7 +420,8 @@ export const getProductions = async (restaurantId) => {
 };
 
 // FIX: Calculates cost from CURRENT ingredient prices at registration time
-export const registerProduction = async (restaurantId, data, recipes, ingredients) => {
+// FIXED: Now includes operationalCostPerDish in production cost calculation
+export const registerProduction = async (restaurantId, data, recipes, ingredients, operationalCostPerDish = 0) => {
   const recipe = recipes.find(r => r.id === data.recipeId);
   if (!recipe) throw new Error('Receita não encontrada');
 
@@ -448,7 +449,7 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
   }
 
   const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
-  const totalCost = (ingredientsCost / yieldQty + variableCostsTotal) * data.quantity;
+  const totalCost = (ingredientsCost / yieldQty + variableCostsTotal + operationalCostPerDish) * data.quantity;
 
   const [ref] = await Promise.all([
     addDoc(collection(db, 'restaurants', restaurantId, 'productions'), {
