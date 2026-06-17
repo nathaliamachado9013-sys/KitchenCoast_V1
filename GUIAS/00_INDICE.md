@@ -28,6 +28,19 @@ Bem-vindo ao centro de documentação do KitchenCoast! Aqui você encontra tudo 
 
 ---
 
+### 2B️⃣ [Auto-Deploy em Produção](02b_AUTO_DEPLOY_PRODUCAO.md)
+- Setup inicial (gerar credenciais Firebase)
+- Configurar secrets no GitHub
+- Como funciona o deploy automático em produção
+- Entender cada fase (testes → build → deploy)
+- Como acompanhar em tempo real
+- Troubleshooting e erros comuns
+- Diferença entre staging e produção
+
+**Tempo de leitura**: 12 min | **Dificuldade**: ⭐⭐⭐ Médio-Alto
+
+---
+
 ### 3️⃣ [Monitoring com Sentry](03_SENTRY_MONITORING.md)
 - Setup Sentry (primeira vez)
 - Como criar conta e pegar DSN
@@ -107,6 +120,7 @@ KitchenCoast_V1/
 │   ├── 00_INDICE.md               (Este arquivo)
 │   ├── 01_CICD_TESTES.md
 │   ├── 02_AUTO_DEPLOY_STAGING.md
+│   ├── 02b_AUTO_DEPLOY_PRODUCAO.md (NOVO - Deploy em Produção)
 │   ├── 03_SENTRY_MONITORING.md
 │   ├── 04_FEATURE_FLAGS.md
 │   ├── 05_VSCODE_TUTORIAL.md
@@ -115,7 +129,8 @@ KitchenCoast_V1/
 ├── .github/
 │   └── workflows/                 (Workflows GitHub Actions)
 │       ├── test.yml               (CI/CD)
-│       └── deploy-staging.yml     (Auto-deploy)
+│       ├── deploy-staging.yml     (Auto-deploy Staging)
+│       └── deploy.yml             (Auto-deploy Produção - NOVO)
 │
 ├── artifacts/kitchencost/
 │   ├── src/
@@ -180,14 +195,15 @@ Se tiver dúvidas:
 
 ## 📊 Estatísticas
 
-- **Total de guias**: 6
-- **Total de linhas**: ~2000+
-- **Tempo total de leitura**: ~50 minutos
-- **Exemplos de código**: 30+
+- **Total de guias**: 7 (incluindo 02b - Deploy em Produção)
+- **Total de linhas**: ~2500+
+- **Tempo total de leitura**: ~65 minutos
+- **Exemplos de código**: 40+
+- **Workflows CI/CD**: 3 (test, deploy-staging, deploy-prod)
 - **Screenshots**: Descritos em ASCII
 
 ---
 
 **Última atualização**: 2026-06-17  
-**Versão do KitchenCoast**: 1.2.0  
-**Status**: ✅ Completo e testado
+**Versão do KitchenCoast**: 1.2.1  
+**Status**: ✅ Completo com Auto-Deploy em Produção
