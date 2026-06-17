@@ -12,6 +12,7 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { generateId, convertUnits, canConvert, assertCanConvert } from './utils';
@@ -286,19 +287,34 @@ export const createRecipe = async (restaurantId, data, ingredients = [], opCostP
   return { id: ref.id, ...cleanData, ...costs };
 };
 
+// FIXED: Uses transaction to ensure recipe and menu items update together
 export const updateRecipe = async (restaurantId, recipeId, data, ingredients = [], opCostPerDish = 0) => {
   const { restaurantId: _r, ...cleanData } = data;
   const costs = calculateRecipeCost(cleanData, ingredients, opCostPerDish);
-  await updateDoc(doc(db, 'restaurants', restaurantId, 'recipes', recipeId), {
-    ...cleanData,
-    ...costs,
-    updatedAt: serverTimestamp(),
-  });
 
-  // FIXED: Sync menu items with updated recipe cost
-  if (costs.costPerPortion !== undefined) {
-    await syncMenuItemsForRecipe(restaurantId, recipeId, costs.costPerPortion);
-  }
+  // First, fetch menu items that need syncing
+  const menuItems = await getMenuItems(restaurantId);
+  const affectedMenuItems = menuItems.filter(item => item.recipeId === recipeId);
+
+  // Atomic transaction: update recipe and all linked menu items
+  await runTransaction(db, async (transaction) => {
+    // Update recipe
+    const recipeRef = doc(db, 'restaurants', restaurantId, 'recipes', recipeId);
+    transaction.update(recipeRef, {
+      ...cleanData,
+      ...costs,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Update all menu items with new cost
+    for (const menuItem of affectedMenuItems) {
+      const menuItemRef = doc(db, 'restaurants', restaurantId, 'menu_items', menuItem.id);
+      transaction.update(menuItemRef, {
+        cost: costs.costPerPortion,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  });
 };
 
 export const deleteRecipe = async (restaurantId, recipeId) => {
@@ -535,14 +551,16 @@ export const getProductions = async (restaurantId) => {
 
 // FIX: Calculates cost from CURRENT ingredient prices at registration time
 // FIXED: Now includes operationalCostPerDish in production cost calculation
+// FIXED: Uses Firestore transaction to ensure atomicity (all updates succeed or all fail)
 export const registerProduction = async (restaurantId, data, recipes, ingredients, operationalCostPerDish = 0) => {
   const recipe = recipes.find(r => r.id === data.recipeId);
   if (!recipe) throw new Error('Receita não encontrada');
 
   let ingredientsCost = 0;
   const yieldQty = recipe.yieldQuantity || 1;
-  const stockUpdates = [];
+  const ingredientUpdates = []; // Will store updates to apply in transaction
 
+  // Validate and calculate ingredient costs (before transaction)
   for (const ri of recipe.ingredients || []) {
     const ing = ingredients.find(i => i.id === ri.ingredientId);
     if (!ing) continue;
@@ -555,20 +573,41 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     }
     ingredientsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
 
-    const newStock = Math.max(0, (ing.currentStock || 0) - qty);
-    stockUpdates.push(
-      updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', ing.id), {
-        currentStock: newStock,
-        updatedAt: serverTimestamp(),
-      })
-    );
+    // Validate stock before transaction
+    const currentStock = ing.currentStock || 0;
+    if (currentStock < qty) {
+      throw new Error(
+        `Estoque insuficiente para ${ing.name}. ` +
+        `Disponível: ${currentStock} ${ing.unit}, ` +
+        `Necessário: ${qty} ${ing.unit}`
+      );
+    }
+
+    ingredientUpdates.push({
+      ingredientId: ing.id,
+      currentStock: currentStock,
+      newStock: currentStock - qty,
+    });
   }
 
   const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
   const totalCost = (ingredientsCost / yieldQty + variableCostsTotal + operationalCostPerDish) * data.quantity;
 
-  const [ref] = await Promise.all([
-    addDoc(collection(db, 'restaurants', restaurantId, 'productions'), {
+  // Atomic transaction: update all ingredients and create production in one go
+  let productionId;
+  await runTransaction(db, async (transaction) => {
+    // Update all ingredient stocks
+    for (const update of ingredientUpdates) {
+      const ingRef = doc(db, 'restaurants', restaurantId, 'ingredients', update.ingredientId);
+      transaction.update(ingRef, {
+        currentStock: update.newStock,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    // Create production record
+    const prodRef = doc(collection(db, 'restaurants', restaurantId, 'productions'));
+    transaction.set(prodRef, {
       recipeId: recipe.id,
       recipeName: recipe.name,
       quantity: data.quantity,
@@ -577,11 +616,11 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
       costPerUnit: totalCost / data.quantity,
       notes: data.notes || '',
       createdAt: serverTimestamp(),
-    }),
-    ...stockUpdates,
-  ]);
+    });
+    productionId = prodRef.id;
+  });
 
-  return { id: ref.id, recipeName: recipe.name, totalCost };
+  return { id: productionId, recipeName: recipe.name, totalCost };
 };
 
 export const deleteProduction = async (restaurantId, productionId) => {
