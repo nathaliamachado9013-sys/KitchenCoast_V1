@@ -87,6 +87,14 @@ export const canConvert = (fromUnit, toUnit) => {
   return false;
 };
 
+// FIXED: Validate unit conversion and throw error if not possible
+export const assertCanConvert = (fromUnit, toUnit, ingredientName = '') => {
+  if (!canConvert(fromUnit, toUnit)) {
+    const ingredient = ingredientName ? ` para ${ingredientName}` : '';
+    throw new Error(`Não é possível converter ${fromUnit} para ${toUnit}${ingredient}. Unidades incompatíveis.`);
+  }
+};
+
 export const convertUnits = (quantity, fromUnit, toUnit) => {
   if (fromUnit === toUnit) return quantity;
   const from = UNIT_CONVERSIONS[fromUnit] || 1;

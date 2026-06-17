@@ -14,7 +14,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { generateId, convertUnits, canConvert } from './utils';
+import { generateId, convertUnits, canConvert, assertCanConvert } from './utils';
 
 // ====================== RESTAURANT & MEMBERS ======================
 
@@ -232,7 +232,9 @@ const calculateRecipeCost = (recipe, ingredients, operationalCostPerDish = 0) =>
     if (!ing) continue;
 
     let qty = ri.quantity || 0;
-    if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
+    // FIXED: Validate unit conversion and throw error if not possible
+    if (ri.unit && ing.unit && ri.unit !== ing.unit) {
+      assertCanConvert(ri.unit, ing.unit, ing.name);
       qty = convertUnits(qty, ri.unit, ing.unit);
     }
     ingredientsCost += qty * (ing.costPerUnit || 0);
@@ -498,7 +500,9 @@ export const registerProduction = async (restaurantId, data, recipes, ingredient
     if (!ing) continue;
 
     let qty = (ri.quantity || 0) * data.quantity;
-    if (ri.unit && ing.unit && ri.unit !== ing.unit && canConvert(ri.unit, ing.unit)) {
+    // FIXED: Validate unit conversion and throw error if not possible
+    if (ri.unit && ing.unit && ri.unit !== ing.unit) {
+      assertCanConvert(ri.unit, ing.unit, ing.name);
       qty = convertUnits(qty, ri.unit, ing.unit);
     }
     ingredientsCost += (ri.quantity || 0) * (ing.costPerUnit || 0);
