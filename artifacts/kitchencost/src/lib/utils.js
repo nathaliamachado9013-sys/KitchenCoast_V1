@@ -91,7 +91,8 @@ export const convertUnits = (quantity, fromUnit, toUnit) => {
   if (fromUnit === toUnit) return quantity;
   const from = UNIT_CONVERSIONS[fromUnit] || 1;
   const to = UNIT_CONVERSIONS[toUnit] || 1;
-  return (quantity * from) / to;
+  // FIXED: Round to 2 decimal places to prevent precision errors
+  return Math.round((quantity * from / to) * 100) / 100;
 };
 
 export const MARGIN_RECOMMENDATIONS = {

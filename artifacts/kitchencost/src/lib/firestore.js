@@ -406,8 +406,21 @@ export const createStockEntry = async (restaurantId, data, ingredients) => {
   const ingredient = ingredients.find(i => i.id === data.ingredientId);
   if (!ingredient) throw new Error('Ingrediente não encontrado');
 
-  const newStock = (ingredient.currentStock || 0) + data.quantity;
-  const newCost = data.unitCost !== undefined && data.unitCost !== null ? data.unitCost : ingredient.costPerUnit;
+  const currentStock = ingredient.currentStock || 0;
+  const newStock = currentStock + data.quantity;
+
+  // FIXED: Calculate proper weighted average cost and round to 2 decimal places
+  let newCost;
+  if (data.unitCost !== undefined && data.unitCost !== null) {
+    if (newStock > 0) {
+      const currentCost = ingredient.costPerUnit || 0;
+      newCost = Math.round(((currentStock * currentCost + data.quantity * data.unitCost) / newStock) * 100) / 100;
+    } else {
+      newCost = data.unitCost;
+    }
+  } else {
+    newCost = ingredient.costPerUnit;
+  }
 
   await updateDoc(doc(db, 'restaurants', restaurantId, 'ingredients', data.ingredientId), {
     currentStock: newStock,
@@ -1023,7 +1036,8 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
     const purchaseValue = lineTotal || quantity * unitPrice || 0;
     const newTotalValue = currentTotalValue + purchaseValue;
     const newTotalQty = currentQty + quantity;
-    const newAvgCost = newTotalQty > 0 ? newTotalValue / newTotalQty : unitPrice;
+    // FIXED: Round decimal to 2 places to prevent precision errors
+    const newAvgCost = newTotalQty > 0 ? Math.round((newTotalValue / newTotalQty) * 100) / 100 : unitPrice;
 
     await updateDoc(ingRef, {
       currentStock: newTotalQty,
@@ -1062,7 +1076,8 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
     const purchaseValue = lineTotal || quantity * unitPrice || 0;
     const newTotalValue = currentTotalValue + purchaseValue;
     const newTotalQty = currentQty + quantity;
-    const newAvgCost = newTotalQty > 0 ? newTotalValue / newTotalQty : unitPrice;
+    // FIXED: Round decimal to 2 places to prevent precision errors
+    const newAvgCost = newTotalQty > 0 ? Math.round((newTotalValue / newTotalQty) * 100) / 100 : unitPrice;
 
     await updateDoc(prodRef, {
       stockQuantity: newTotalQty,
