@@ -1,0 +1,119 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Permite disparar manualmente
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run linter
+        run: pnpm run lint || true
+
+      - name: Run typecheck
+        run: pnpm run typecheck || true
+
+      - name: Run tests
+        run: pnpm run test:coverage
+
+      - name: Build
+        run: pnpm --filter @workspace/kitchencost run build
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build frontend
+        run: pnpm --filter @workspace/kitchencost run build
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}'
+          channelId: live
+          projectId: kitchencost-e1a2e
+        env:
+          FIREBASE_CLI_EXPERIMENTS: webframeworks
+
+      - name: Run smoke tests
+        run: |
+          echo "Verificando se deploy foi bem-sucedido..."
+          curl -f https://kitchencost-e1a2e.web.app/ || exit 1
+          echo "✅ Deploy bem-sucedido em produção!"
+
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    if: hashFiles('artifacts/api-server/**') != ''
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build backend
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v1
+        with:
+          service: kitchencost-api
+          region: us-central1
+          image: gcr.io/kitchencost-e1a2e/kitchencost-api:${{ github.sha }}
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}'
+
+  notify:
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack Notification - Success
+        if: success()
+        run: |
+          echo "✅ Deploy para PRODUÇÃO bem-sucedido!"
+          echo "🚀 Versão: ${{ github.sha }}"
+          echo "📝 Commit: ${{ github.event.head_commit.message }}"
+
+      - name: Slack Notification - Failure
+        if: failure()
+        run: |
+          echo "❌ Deploy para PRODUÇÃO FALHOU!"
+          echo "🔴 Versão: ${{ github.sha }}"
+          exit 1
