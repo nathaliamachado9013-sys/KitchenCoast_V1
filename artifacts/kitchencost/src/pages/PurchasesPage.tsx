@@ -216,6 +216,31 @@ const PurchasesPage = () => {
       return;
     }
 
+    // FIXED: Validate and calculate totalAmount if missing
+    let finalTotalAmount = parseFloat(invoiceHeader.totalAmount) || 0;
+    if (!finalTotalAmount || finalTotalAmount === 0) {
+      const calculatedTotal = reviewLines.reduce((sum, line) => {
+        const lineTotal = parseFloat(line.lineTotal) || (parseFloat(line.quantity) || 0) * (parseFloat(line.unitPrice) || 0);
+        return sum + lineTotal;
+      }, 0);
+
+      if (calculatedTotal > 0) {
+        finalTotalAmount = calculatedTotal;
+        toast({
+          title: 'Total calculado automaticamente',
+          description: `Total: ${formatCurrency(finalTotalAmount, invoiceHeader.currency)}`,
+        });
+      } else {
+        toast({
+          title: 'Erro',
+          description: 'Preencha o total da nota ou adicione itens com valores',
+          variant: 'destructive',
+        });
+        setIsSaving(false);
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       const { id: invoiceId } = await createInvoice(restaurant.id, {
@@ -225,7 +250,7 @@ const PurchasesPage = () => {
         invoiceNumber: invoiceHeader.invoiceNumber,
         invoiceDate: invoiceHeader.invoiceDate,
         currency: invoiceHeader.currency,
-        totalAmount: parseFloat(invoiceHeader.totalAmount) || 0,
+        totalAmount: finalTotalAmount,
         fileUrl: '',
         fileType: selectedFile?.type || '',
         extractedJson: { items: reviewLines },
