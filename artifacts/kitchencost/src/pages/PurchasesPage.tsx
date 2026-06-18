@@ -11,7 +11,7 @@ import {
 import {
   getSuppliers, createSupplier,
   getIngredients, getResaleProducts,
-  createInvoice, updateInvoice,
+  createInvoice, updateInvoice, deleteInvoice,
   checkDuplicateInvoice, importInvoiceLineToStock,
 } from '../lib/firestore';
 import { extractInvoiceFromFile } from '../lib/aiExtraction';

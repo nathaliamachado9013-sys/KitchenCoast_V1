@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { getIngredients, getStockMovements, createStockEntry, createStockExit, getInventoryValue } from '../lib/firestore';
+import { getIngredients, getStockMovements, createStockEntry, createStockExit, getInventoryValue, deleteStockMovement } from '../lib/firestore';
 import { formatCurrency, formatNumber, formatDateTime } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Loader2, Package, ArrowUpCircle, ArrowDownCircle, AlertTriangle, DollarSign } from 'lucide-react';
+import { Plus, Loader2, Package, ArrowUpCircle, ArrowDownCircle, AlertTriangle, DollarSign, Trash2 } from 'lucide-react';
 
 const StockPage = () => {
   const { restaurant, currency } = useAuth();
@@ -59,6 +59,15 @@ const StockPage = () => {
       setModalOpen(false); loadData();
     } catch (err) { toast({ title: 'Erro', description: err.message || 'Erro ao registrar', variant: 'destructive' }); }
     finally { setSaving(false); }
+  };
+
+  const handleDeleteMovement = async (movementId) => {
+    if (!confirm('Tem certeza que deseja deletar esta movimentação? O estoque será revertido.')) return;
+    try {
+      await deleteStockMovement(restaurant.restaurantId, movementId);
+      toast({ title: 'Movimentação deletada!', description: 'Estoque foi revertido' });
+      loadData();
+    } catch (err) { toast({ title: 'Erro', description: err.message || 'Erro ao deletar', variant: 'destructive' }); }
   };
 
   const getStockStatus = (item) => {
@@ -137,11 +146,12 @@ const StockPage = () => {
                   <th className="px-4 py-3 font-semibold">Ingrediente</th>
                   <th className="px-4 py-3 font-semibold">Quantidade</th>
                   <th className="px-4 py-3 font-semibold">Motivo</th>
+                  <th className="px-4 py-3 font-semibold text-center">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {movements.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Nenhuma movimentação registrada</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Nenhuma movimentação registrada</td></tr>
                 ) : movements.map(m => (
                   <tr key={m.id} className="border-t border-border/50">
                     <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(m.createdAt)}</td>
@@ -154,6 +164,9 @@ const StockPage = () => {
                     <td className="px-4 py-3 font-medium">{m.ingredientName}</td>
                     <td className="px-4 py-3">{formatNumber(m.quantity)} {m.unit}</td>
                     <td className="px-4 py-3 text-muted-foreground capitalize">{m.reason}</td>
+                    <td className="px-4 py-3 text-center">
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteMovement(m.id)}><Trash2 className="w-4 h-4 text-red-600" /></Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

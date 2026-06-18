@@ -235,24 +235,122 @@ export const updateIngredient = async (restaurantId, ingredientId, data) => {
 };
 
 export const deleteIngredient = async (restaurantId, ingredientId) => {
-  // Delete ingredient and all its stock movements atomically
   await runTransaction(db, async (transaction) => {
-    // Get all movements for this ingredient
     const movementsSnapshot = await transaction.get(
       query(
         collection(db, 'restaurants', restaurantId, 'stock_movements'),
         where('ingredientId', '==', ingredientId)
       )
     );
-
-    // Delete each movement
     movementsSnapshot.docs.forEach((doc) => {
       transaction.delete(doc.ref);
     });
-
-    // Delete the ingredient itself
     const ingredientRef = doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId);
     transaction.delete(ingredientRef);
+  });
+};
+
+export const deleteInvoice = async (restaurantId, invoiceId) => {
+  await runTransaction(db, async (transaction) => {
+    const movementsQuery = query(
+      collection(db, 'restaurants', restaurantId, 'stock_movements'),
+      where('invoiceId', '==', invoiceId)
+    );
+    const movementsSnapshot = await transaction.get(movementsQuery);
+
+    movementsSnapshot.docs.forEach((movementDoc) => {
+      const movement = movementDoc.data();
+      const { ingredientId, type, quantity, unitCost } = movement;
+
+      if (!ingredientId) return;
+
+      const ingRef = doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId);
+      const ingSnapshot = transaction.get(ingRef);
+
+      if (ingSnapshot) {
+        const ingredient = ingSnapshot.data() || {};
+        const currentQty = ingredient.currentStock || 0;
+        const currentAvgCost = ingredient.averageCost || ingredient.costPerUnit || 0;
+
+        if (type === 'in') {
+          const newQty = Math.max(0, currentQty - quantity);
+          const newTotalValue = newQty > 0 ? (currentQty * currentAvgCost) - (quantity * unitCost) : 0;
+          const newAvgCost = newQty > 0 ? Math.round((newTotalValue / newQty) * 100) / 100 : 0;
+
+          transaction.update(ingRef, {
+            currentStock: newQty,
+            costPerUnit: newAvgCost,
+            averageCost: newAvgCost,
+            updatedAt: serverTimestamp(),
+          });
+        } else if (type === 'out') {
+          const newQty = currentQty + quantity;
+          const newTotalValue = (currentQty * currentAvgCost) + (quantity * unitCost);
+          const newAvgCost = newQty > 0 ? Math.round((newTotalValue / newQty) * 100) / 100 : unitCost;
+
+          transaction.update(ingRef, {
+            currentStock: newQty,
+            costPerUnit: newAvgCost,
+            averageCost: newAvgCost,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      transaction.delete(movementDoc.ref);
+    });
+
+    const invoiceRef = doc(db, 'restaurants', restaurantId, 'invoices', invoiceId);
+    transaction.delete(invoiceRef);
+  });
+};
+
+export const deleteStockMovement = async (restaurantId, movementId) => {
+  await runTransaction(db, async (transaction) => {
+    const movementRef = doc(db, 'restaurants', restaurantId, 'stock_movements', movementId);
+    const movementSnapshot = await transaction.get(movementRef);
+
+    if (!movementSnapshot.exists()) return;
+
+    const movement = movementSnapshot.data();
+    const { ingredientId, type, quantity, unitCost } = movement;
+
+    if (ingredientId) {
+      const ingRef = doc(db, 'restaurants', restaurantId, 'ingredients', ingredientId);
+      const ingSnapshot = await transaction.get(ingRef);
+
+      if (ingSnapshot.exists()) {
+        const ingredient = ingSnapshot.data();
+        const currentQty = ingredient.currentStock || 0;
+        const currentAvgCost = ingredient.averageCost || ingredient.costPerUnit || 0;
+
+        if (type === 'in') {
+          const newQty = Math.max(0, currentQty - quantity);
+          const newTotalValue = newQty > 0 ? (currentQty * currentAvgCost) - (quantity * unitCost) : 0;
+          const newAvgCost = newQty > 0 ? Math.round((newTotalValue / newQty) * 100) / 100 : 0;
+
+          transaction.update(ingRef, {
+            currentStock: newQty,
+            costPerUnit: newAvgCost,
+            averageCost: newAvgCost,
+            updatedAt: serverTimestamp(),
+          });
+        } else if (type === 'out') {
+          const newQty = currentQty + quantity;
+          const newTotalValue = (currentQty * currentAvgCost) + (quantity * unitCost);
+          const newAvgCost = newQty > 0 ? Math.round((newTotalValue / newQty) * 100) / 100 : unitCost;
+
+          transaction.update(ingRef, {
+            currentStock: newQty,
+            costPerUnit: newAvgCost,
+            averageCost: newAvgCost,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+    }
+
+    transaction.delete(movementRef);
   });
 };
 
