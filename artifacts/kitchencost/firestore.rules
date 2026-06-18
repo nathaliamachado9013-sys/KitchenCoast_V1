@@ -110,7 +110,7 @@ service cloud.firestore {
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.role in ['owner', 'admin', 'manager', 'staff'];
 
-        allow delete: if isOwner(restaurantId) && uid != request.auth.uid;
+        allow delete: if isOwner(restaurantId);
       }
 
       /* =========================
@@ -120,7 +120,7 @@ service cloud.firestore {
       match /ingredients/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -130,7 +130,7 @@ service cloud.firestore {
       match /suppliers/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -140,7 +140,7 @@ service cloud.firestore {
       match /recipes/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -151,7 +151,7 @@ service cloud.firestore {
         allow read: if canOperate(restaurantId);
         allow create: if canOperate(restaurantId);
         allow update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -161,7 +161,7 @@ service cloud.firestore {
       match /productions/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if canOperate(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -171,7 +171,7 @@ service cloud.firestore {
       match /sales/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if canOperate(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -181,7 +181,7 @@ service cloud.firestore {
       match /menu_items/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -191,7 +191,7 @@ service cloud.firestore {
       match /menu_categories/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -201,7 +201,7 @@ service cloud.firestore {
       match /resale_products/{docId} {
         allow read: if canOperate(restaurantId);
         allow create, update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
       }
 
       /* =========================
@@ -222,7 +222,17 @@ service cloud.firestore {
         allow read: if canOperate(restaurantId);
         allow create: if isManager(restaurantId);
         allow update: if isManager(restaurantId);
-        allow delete: if isAdmin(restaurantId);
+        allow delete: if isAdmin(restaurantId) || isOwner(restaurantId);
+      }
+
+      /* =========================
+         Price history (audit trail)
+      ========================= */
+
+      match /price_history/{docId} {
+        allow read: if canOperate(restaurantId);
+        allow create: if isManager(restaurantId);
+        allow delete: if isOwner(restaurantId);
       }
     }
 
