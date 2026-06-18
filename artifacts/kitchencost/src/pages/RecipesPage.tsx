@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Loader2, Pencil, Trash2, BookOpen, AlertTriangle, Search, X } from 'lucide-react';
 
@@ -178,15 +177,10 @@ const RecipesPage = () => {
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingItem ? 'Editar Receita' : 'Nova Receita'}</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-5 pt-2">
-            <Tabs defaultValue="basic">
-              <TabsList>
-                <TabsTrigger value="basic">Informações</TabsTrigger>
-                <TabsTrigger value="ingredients">Ingredientes</TabsTrigger>
-                <TabsTrigger value="pricing">Precificação</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="basic" className="space-y-4 pt-4">
+          <form onSubmit={handleSubmit} className="space-y-6 pt-2">
+            {/* INFORMAÇÕES BÁSICAS */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm border-b pb-2">Informações da Receita</h3>
                 <div><Label>Nome *</Label><Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required /></div>
                 <div><Label>Descrição</Label><Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} /></div>
                 <div className="form-grid">
@@ -205,10 +199,11 @@ const RecipesPage = () => {
                   <div><Label>Rendimento (quantidade)</Label><Input type="number" step="0.1" value={formData.yieldQuantity} onChange={(e) => setFormData({ ...formData, yieldQuantity: e.target.value })} /></div>
                   <div><Label>Unidade de rendimento</Label><Input value={formData.yieldUnit} onChange={(e) => setFormData({ ...formData, yieldUnit: e.target.value })} placeholder="porção, unidade..." /></div>
                 </div>
-                <div><Label>Modo de Preparo</Label><Textarea rows={4} value={formData.instructions} onChange={(e) => setFormData({ ...formData, instructions: e.target.value })} placeholder="Passo a passo..." /></div>
-              </TabsContent>
+                <div><Label>Modo de Preparo</Label><Textarea rows={3} value={formData.instructions} onChange={(e) => setFormData({ ...formData, instructions: e.target.value })} placeholder="Passo a passo..." /></div>
+            </div>
 
-              <TabsContent value="ingredients" className="space-y-4 pt-4">
+            {/* INGREDIENTES */}
+            <div className="space-y-4">
                 <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                   <h4 className="font-medium text-sm">Adicionar ingrediente</h4>
                   <div>
@@ -264,35 +259,50 @@ const RecipesPage = () => {
                     </div>
                   ))}
                 </div>
-              </TabsContent>
+            </div>
 
-              <TabsContent value="pricing" className="space-y-4 pt-4">
-                <div className="form-grid">
+            {/* CUSTOS E PREÇIFICAÇÃO */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm border-b pb-2">Custos e Preço</h3>
+              <div className="form-grid">
                   <div><Label>Preço de venda</Label><Input type="number" step="0.01" value={formData.sellingPrice} onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })} /></div>
                   <div><Label>Margem desejada (%)</Label><Input type="number" step="0.1" value={formData.desiredMargin} onChange={(e) => setFormData({ ...formData, desiredMargin: e.target.value })} /></div>
                 </div>
-                <div className="bg-muted/30 rounded-lg p-4 space-y-3 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Custo de ingredientes</span><span>{formatCurrency(pricing.ingsCost, currency)}</span></div>
-                  {pricing.variableTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Custos variáveis</span><span>{formatCurrency(pricing.variableTotal, currency)}</span></div>}
-                  <div className="flex justify-between"><span className="text-muted-foreground">Custo fixo/prato</span><span>{formatCurrency(opCostPerDish, currency)}</span></div>
-                  <div className="flex justify-between border-t pt-2 font-medium"><span>Custo total/porção</span><span>{formatCurrency(pricing.totalDishCost, currency)}</span></div>
-                  {pricing.suggestedPrice > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Preço sugerido</span><span className="font-medium text-primary">{formatCurrency(pricing.suggestedPrice, currency)}</span></div>}
-                  {pricing.sellingPrice > 0 && (
-                    <>
-                      <div className="flex justify-between border-t pt-2"><span className="text-muted-foreground">Margem real</span><span className={`font-bold ${marginColor(pricing.actualMargin)}`}>{formatNumber(pricing.actualMargin, 1)}%</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Lucro/porção</span><span className="font-semibold text-emerald-600">{formatCurrency(pricing.profitPerUnit, currency)}</span></div>
-                    </>
-                  )}
-                  <p className="text-muted-foreground text-xs">Margem recomendada: {pricing.recommendedRange}</p>
-                  {pricing.sellingPrice > 0 && pricing.actualMargin < pricing.minRec && (
-                    <div className="flex items-start gap-2 bg-red-50 text-red-700 p-2 rounded text-xs">
+              <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 space-y-2 text-sm">
+                <div className="text-xs text-muted-foreground">DETALHAMENTO DE CUSTOS</div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Ingredientes</span><span className="font-medium">{formatCurrency(pricing.ingsCost, currency)}</span></div>
+                {pricing.variableTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Custos variáveis</span><span className="font-medium">{formatCurrency(pricing.variableTotal, currency)}</span></div>}
+                <div className="flex justify-between"><span className="text-muted-foreground">Custo fixo/prato</span><span className="font-medium">{formatCurrency(opCostPerDish, currency)}</span></div>
+                <div className="flex justify-between border-t-2 border-green-200 pt-2 bg-green-100 -m-4 px-4 py-3 rounded-b font-bold text-green-900"><span>💰 CUSTO TOTAL/PORÇÃO</span><span className="text-lg">{formatCurrency(pricing.totalDishCost, currency)}</span></div>
+              </div>
+
+              {pricing.suggestedPrice > 0 && (
+                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="text-xs text-muted-foreground font-semibold">💡 SUGESTÃO DE PREÇO (70% margem)</div>
+                  <div className="flex justify-between items-center">
+                    <span>Preço sugerido:</span>
+                    <span className="text-lg font-bold text-blue-600">{formatCurrency(pricing.suggestedPrice, currency)}</span>
+                  </div>
+                  <button type="button" className="w-full bg-blue-600 text-white text-xs py-1.5 rounded font-medium hover:bg-blue-700 transition" onClick={() => setFormData({...formData, sellingPrice: pricing.suggestedPrice})}>
+                    Usar este preço
+                  </button>
+                </div>
+              )}
+              {pricing.sellingPrice > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="text-xs text-muted-foreground font-semibold">SEU PREÇO</div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Preço configurado</span><span className="font-medium">{formatCurrency(pricing.sellingPrice, currency)}</span></div>
+                  <div className="flex justify-between border-t pt-2"><span className="text-muted-foreground">Margem real</span><span className={`font-bold ${marginColor(pricing.actualMargin)}`}>{formatNumber(pricing.actualMargin, 1)}%</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Lucro/porção</span><span className="font-semibold text-emerald-600">{formatCurrency(pricing.profitPerUnit, currency)}</span></div>
+                  {pricing.actualMargin < pricing.minRec && (
+                    <div className="flex items-start gap-2 bg-red-50 text-red-700 p-2 rounded text-xs border border-red-200">
                       <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                      <span>Margem abaixo do recomendado. Considere {formatCurrency(pricing.suggestedPrice, currency)} como preço.</span>
+                      <span>Margem abaixo do recomendado ({pricing.recommendedRange})</span>
                     </div>
                   )}
                 </div>
-              </TabsContent>
-            </Tabs>
+              )}
+            </div>
 
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
