@@ -153,9 +153,23 @@ const ProductionPage = () => {
                 <SelectContent>{recipes.map(r => <SelectItem key={r.id} value={r.id}>{r.name} — {formatCurrency(r.costPerPortion || 0, currency)}/porção</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Quantidade (vezes a receita) *</Label>
-              <Input type="number" step="0.5" min="0.5" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} />
+            <div className="form-grid">
+              <div>
+                <Label>Quantidade Produzida *</Label>
+                <Input type="number" step="0.5" min="0.5" value={formData.quantity} onChange={(e) => setFormData({ ...formData, quantity: e.target.value })} placeholder="Ex: 200" />
+              </div>
+              <div>
+                <Label>Unidade</Label>
+                <Select value={formData.unit || 'porções'} onValueChange={(v) => setFormData({ ...formData, unit: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="porções">Porções</SelectItem>
+                    <SelectItem value="kg">Quilos (kg)</SelectItem>
+                    <SelectItem value="L">Litros (L)</SelectItem>
+                    <SelectItem value="unidades">Unidades</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {selectedRecipe && formData.quantity && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex justify-between items-center">

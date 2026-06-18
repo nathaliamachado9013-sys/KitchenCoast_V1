@@ -18,7 +18,7 @@ const ResaleProductsPage = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
-  const emptyForm = { name: '', category: '', purchasePrice: '', salePrice: '', unit: 'unidade', currentStock: '0', minStock: '0', supplier: '' };
+  const emptyForm = { name: '', category: '', purchasePrice: '', salePrice: '', desiredMargin: '70', unit: 'unidade', currentStock: '0', minStock: '0', supplier: '' };
   const [formData, setFormData] = useState(emptyForm);
 
   useEffect(() => { if (restaurant?.restaurantId) loadData(); }, [restaurant]);
@@ -31,7 +31,7 @@ const ResaleProductsPage = () => {
 
   const openModal = (item = null) => {
     setEditingItem(item);
-    setFormData(item ? { name: item.name || '', category: item.category || '', purchasePrice: item.purchasePrice?.toString() || '', salePrice: item.salePrice?.toString() || '', unit: item.unit || 'unidade', currentStock: item.currentStock?.toString() || '0', minStock: item.minStock?.toString() || '0', supplier: item.supplier || '' } : emptyForm);
+    setFormData(item ? { name: item.name || '', category: item.category || '', purchasePrice: item.purchasePrice?.toString() || '', salePrice: item.salePrice?.toString() || '', desiredMargin: '70', unit: item.unit || 'unidade', currentStock: item.currentStock?.toString() || '0', minStock: item.minStock?.toString() || '0', supplier: item.supplier || '' } : emptyForm);
     setModalOpen(true);
   };
 
@@ -110,10 +110,28 @@ const ResaleProductsPage = () => {
               <div><Label>Custo de compra *</Label><Input type="number" step="0.01" value={formData.purchasePrice} onChange={(e) => setFormData({ ...formData, purchasePrice: e.target.value })} required /></div>
               <div><Label>Preço de venda *</Label><Input type="number" step="0.01" value={formData.salePrice} onChange={(e) => setFormData({ ...formData, salePrice: e.target.value })} required /></div>
             </div>
+
+            {formData.purchasePrice && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2 text-sm">
+                <div><Label className="text-xs">Margem Desejada (%)</Label><Input type="number" step="0.1" value={formData.desiredMargin} onChange={(e) => setFormData({ ...formData, desiredMargin: e.target.value })} /></div>
+                {formData.purchasePrice && formData.desiredMargin && (
+                  <>
+                    <div className="bg-white rounded p-2 border">
+                      <div className="text-xs text-muted-foreground mb-1">Preço Sugerido:</div>
+                      <div className="text-lg font-bold text-blue-600">{formatCurrency((parseFloat(formData.purchasePrice) || 0) * (1 + (parseFloat(formData.desiredMargin) || 0) / 100), currency)}</div>
+                    </div>
+                    <button type="button" className="w-full bg-blue-600 text-white text-xs py-1.5 rounded font-medium hover:bg-blue-700" onClick={() => setFormData({ ...formData, salePrice: ((parseFloat(formData.purchasePrice) || 0) * (1 + (parseFloat(formData.desiredMargin) || 0) / 100)).toFixed(2) })}>
+                      Usar Preço Sugerido
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             {formData.purchasePrice && formData.salePrice && (
-              <div className="bg-muted/30 rounded-lg p-3 text-sm">
-                <div className="flex justify-between"><span>Lucro/un</span><span className="font-medium text-emerald-600">{formatCurrency((parseFloat(formData.salePrice) || 0) - (parseFloat(formData.purchasePrice) || 0), currency)}</span></div>
-                <div className="flex justify-between"><span>Margem</span><span className="font-medium">{formatNumber(parseFloat(formData.salePrice) > 0 ? (((parseFloat(formData.salePrice) - parseFloat(formData.purchasePrice)) / parseFloat(formData.salePrice)) * 100) : 0, 1)}%</span></div>
+              <div className="bg-amber-50 rounded-lg p-3 text-sm">
+                <div className="flex justify-between mb-1"><span className="text-muted-foreground">Lucro/un</span><span className="font-medium text-emerald-600">{formatCurrency((parseFloat(formData.salePrice) || 0) - (parseFloat(formData.purchasePrice) || 0), currency)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Margem Real</span><span className="font-bold">{formatNumber(parseFloat(formData.salePrice) > 0 ? (((parseFloat(formData.salePrice) - parseFloat(formData.purchasePrice)) / parseFloat(formData.salePrice)) * 100) : 0, 1)}%</span></div>
               </div>
             )}
             <div className="form-grid">

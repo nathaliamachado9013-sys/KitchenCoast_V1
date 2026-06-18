@@ -1563,6 +1563,25 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
   }
 };
 
+// ====================== STOCK ALERTS ======================
+
+export const getCriticalStockAlerts = async (restaurantId) => {
+  const ingredients = await getIngredients(restaurantId);
+
+  return ingredients
+    .filter(ing => (ing.currentStock || 0) <= (ing.minStock || 0))
+    .map(ing => ({
+      id: ing.id,
+      name: ing.name,
+      current: ing.currentStock || 0,
+      minimum: ing.minStock || 0,
+      needed: Math.ceil((ing.minStock || 0) - (ing.currentStock || 0)),
+      unit: ing.unit || 'unidade',
+      severity: ing.currentStock === 0 ? 'crítica' : 'alta'
+    }))
+    .sort((a, b) => b.severity.localeCompare(a.severity));
+};
+
 // ====================== DELETE RESTAURANT (COMPLETE CLEANUP) ======================
 
 export const deleteRestaurantCompletely = async (restaurantId) => {
