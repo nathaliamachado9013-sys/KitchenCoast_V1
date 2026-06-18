@@ -200,7 +200,6 @@ const RecipesPage = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>Tempo de preparo (min)</Label><Input type="number" value={formData.preparationTime} onChange={(e) => setFormData({ ...formData, preparationTime: e.target.value })} /></div>
                 </div>
                 <div className="form-grid">
                   <div><Label>Rendimento (quantidade)</Label><Input type="number" step="0.1" value={formData.yieldQuantity} onChange={(e) => setFormData({ ...formData, yieldQuantity: e.target.value })} /></div>
