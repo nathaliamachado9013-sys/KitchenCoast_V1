@@ -72,8 +72,8 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@sentry/react": "^8.0.0",
-    "@sentry/tracing": "^8.0.0",
+    "@sentry/react": "^7.120.0",
+    "@sentry/tracing": "^7.120.0",
     "firebase": "^12.10.0",
     "react-google-recaptcha-v3": "^1.11.0",
     "react-router-dom": "^7.13.1"
