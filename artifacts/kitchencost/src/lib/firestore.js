@@ -377,12 +377,18 @@ const calculateRecipeCost = (recipe, ingredients, operationalCostPerDish = 0) =>
     if (!ing) continue;
 
     let qty = ri.quantity || 0;
-    // FIXED: Validate unit conversion and throw error if not possible
-    if (ri.unit && ing.unit && ri.unit !== ing.unit) {
-      assertCanConvert(ri.unit, ing.unit, ing.name);
-      qty = convertUnits(qty, ri.unit, ing.unit);
+    const recipeUnit = ri.unit || 'g';
+    const ingredientUnit = ing.unit || 'g';
+
+    // FIXED: Convert recipe ingredient quantity to ingredient's unit for accurate cost calculation
+    if (recipeUnit !== ingredientUnit) {
+      assertCanConvert(recipeUnit, ingredientUnit, ing.name);
+      qty = convertUnits(qty, recipeUnit, ingredientUnit);
     }
-    ingredientsCost += qty * (ing.costPerUnit || 0);
+
+    // Now qty is in the same unit as costPerUnit
+    const ingredientCost = qty * (ing.costPerUnit || 0);
+    ingredientsCost += ingredientCost;
   }
 
   const variableCostsTotal = (recipe.variableCosts || []).reduce((s, v) => s + (v.value || 0), 0);
@@ -962,20 +968,64 @@ export const getPaginatedMenuItems = async (restaurantId, pageSize = 50, startAf
   return { items, lastDoc, hasMore };
 };
 
-export const createMenuItem = async (restaurantId, data) => {
-  const { restaurantId: _r, ...cleanData } = data;
+export const createMenuItem = async (restaurantId, data, recipes = []) => {
+  const { restaurantId: _r, recipeId, recipeIds, ...cleanData } = data;
+
+  // Support both single recipeId (legacy) and multiple recipeIds (new)
+  let finalRecipeIds = [];
+  if (recipeIds && Array.isArray(recipeIds)) {
+    finalRecipeIds = recipeIds;
+  } else if (recipeId) {
+    finalRecipeIds = [recipeId];
+  }
+
+  // Calculate total cost from all recipes
+  let totalCost = 0;
+  if (finalRecipeIds.length > 0 && recipes.length > 0) {
+    for (const rid of finalRecipeIds) {
+      const recipe = recipes.find(r => r.id === rid);
+      if (recipe) {
+        totalCost += recipe.costPerPortion || recipe.totalDishCost || 0;
+      }
+    }
+  }
+
   const ref = await addDoc(collection(db, 'restaurants', restaurantId, 'menu_items'), {
     ...cleanData,
+    recipeIds: finalRecipeIds,
+    cost: totalCost || cleanData.cost || 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  return { id: ref.id, ...cleanData };
+  return { id: ref.id, ...cleanData, recipeIds: finalRecipeIds, cost: totalCost };
 };
 
-export const updateMenuItem = async (restaurantId, itemId, data) => {
-  const { restaurantId: _r, ...cleanData } = data;
+export const updateMenuItem = async (restaurantId, itemId, data, recipes = []) => {
+  const { restaurantId: _r, recipeId, recipeIds, ...cleanData } = data;
+
+  // Support both single recipeId (legacy) and multiple recipeIds (new)
+  let finalRecipeIds = [];
+  if (recipeIds && Array.isArray(recipeIds)) {
+    finalRecipeIds = recipeIds;
+  } else if (recipeId) {
+    finalRecipeIds = [recipeId];
+  }
+
+  // Calculate total cost from all recipes
+  let totalCost = 0;
+  if (finalRecipeIds.length > 0 && recipes.length > 0) {
+    for (const rid of finalRecipeIds) {
+      const recipe = recipes.find(r => r.id === rid);
+      if (recipe) {
+        totalCost += recipe.costPerPortion || recipe.totalDishCost || 0;
+      }
+    }
+  }
+
   await updateDoc(doc(db, 'restaurants', restaurantId, 'menu_items', itemId), {
     ...cleanData,
+    recipeIds: finalRecipeIds,
+    cost: totalCost || cleanData.cost || 0,
     updatedAt: serverTimestamp(),
   });
 };
@@ -1390,6 +1440,12 @@ export const updateInvoice = async (restaurantId, invoiceId, data) => {
     ...data,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const getInvoice = async (restaurantId, invoiceId) => {
+  const docSnap = await getDoc(doc(db, 'restaurants', restaurantId, 'invoices', invoiceId));
+  if (!docSnap.exists()) return null;
+  return { id: docSnap.id, ...docSnap.data() };
 };
 
 export const getInvoices = async (restaurantId) => {
