@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   runTransaction,
   onSnapshot,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { generateId, convertUnits, canConvert, assertCanConvert } from './utils';
@@ -1503,5 +1504,44 @@ export const importInvoiceLineToStock = async (restaurantId, invoiceId, line) =>
       averageCost: newAvgCost,
       updatedAt: serverTimestamp(),
     });
+  }
+};
+
+// ====================== DELETE RESTAURANT (COMPLETE CLEANUP) ======================
+
+export const deleteRestaurantCompletely = async (restaurantId) => {
+  const subcollections = [
+    'members', 'ingredients', 'suppliers', 'recipes', 'stock_movements',
+    'productions', 'sales', 'menu_items', 'menu_categories', 'resale_products',
+    'settings', 'invoices', 'price_history'
+  ];
+
+  const batch = writeBatch(db);
+  let batchCount = 0;
+
+  // Delete all documents in all subcollections
+  for (const subcollectionName of subcollections) {
+    const subcollectionRef = collection(db, 'restaurants', restaurantId, subcollectionName);
+    const snapshot = await getDocs(subcollectionRef);
+
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+      batchCount++;
+
+      // Commit batch every 500 items (Firestore limit)
+      if (batchCount === 500) {
+        await batch.commit();
+        batchCount = 0;
+      }
+    }
+  }
+
+  // Delete the restaurant document itself
+  const restaurantRef = doc(db, 'restaurants', restaurantId);
+  batch.delete(restaurantRef);
+
+  // Commit final batch
+  if (batchCount > 0 || true) {
+    await batch.commit();
   }
 };

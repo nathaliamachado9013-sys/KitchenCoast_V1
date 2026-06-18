@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { updateRestaurant, getMenuCategories, createMenuCategory, updateMenuCategory, deleteMenuCategory } from '../lib/firestore';
+import { updateRestaurant, getMenuCategories, createMenuCategory, updateMenuCategory, deleteMenuCategory, deleteRestaurantCompletely } from '../lib/firestore';
 import { SUPPORTED_CURRENCIES } from '../lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,9 @@ const SettingsPage = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
   const [formData, setFormData] = useState({ name: '', address: '', phone: '', currency: 'BRL' });
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (restaurant) {
@@ -72,6 +75,23 @@ const SettingsPage = () => {
     if (!window.confirm(`Excluir categoria "${cat.name}"?`)) return;
     try { await deleteMenuCategory(restaurant.restaurantId, cat.id); toast({ title: 'Categoria excluída!' }); loadCategories(); }
     catch { toast({ title: 'Erro', description: 'Erro ao excluir', variant: 'destructive' }); }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'EXCLUIR') {
+      toast({ title: 'Erro', description: 'Digite "EXCLUIR" para confirmar', variant: 'destructive' });
+      return;
+    }
+    setDeletingAccount(true);
+    try {
+      await deleteRestaurantCompletely(restaurant.restaurantId);
+      toast({ title: 'Conta deletada!', description: 'Sua conta foi permanentemente removida' });
+      setTimeout(() => window.location.href = '/', 2000);
+    } catch (err) {
+      toast({ title: 'Erro ao deletar', description: err.message || 'Erro ao excluir conta', variant: 'destructive' });
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   return (
@@ -135,6 +155,20 @@ const SettingsPage = () => {
             <ChevronRight className="w-5 h-5 text-muted-foreground" />
           </div>
         </div>
+
+        <div className="bg-card rounded-xl border p-6 border-red-200 bg-red-50">
+          <h2 className="font-semibold text-red-900 mb-4 flex items-center gap-2">⚠️ Zona de Perigo</h2>
+          <p className="text-sm text-red-800 mb-4">
+            Excluir sua conta é uma ação irreversível. Todos os seus dados serão permanentemente removidos:
+          </p>
+          <ul className="text-sm text-red-800 mb-4 space-y-1">
+            <li>• Ingredientes, receitas e fornecedores</li>
+            <li>• Histórico completo de notas fiscais e movimentações de estoque</li>
+            <li>• Vendas, produções e relatórios</li>
+            <li>• Sua conta de usuário</li>
+          </ul>
+          <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>🗑️ Excluir minha conta permanentemente</Button>
+        </div>
       </div>
 
       <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
@@ -145,6 +179,36 @@ const SettingsPage = () => {
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setCategoryModalOpen(false)}>Cancelar</Button>
               <Button onClick={handleSaveCategory} disabled={savingCategory}>{savingCategory && <Loader2 className="w-4 h-4 animate-spin mr-2" />}{editingCategory ? 'Salvar' : 'Criar'}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-red-600">⚠️ Excluir conta permanentemente</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="bg-red-50 border border-red-200 rounded p-3">
+              <p className="text-sm text-red-800">
+                <strong>Esta ação é irreversível.</strong> Serão apagados permanentemente:
+              </p>
+              <ul className="text-xs text-red-700 mt-2 space-y-1">
+                <li>• Ingredientes, receitas e fornecedores</li>
+                <li>• Histórico de notas fiscais e movimentações</li>
+                <li>• Vendas, produções e relatórios</li>
+                <li>• Sua conta de usuário</li>
+              </ul>
+            </div>
+            <div>
+              <Label className="text-red-600">Para confirmar, digite <strong>EXCLUIR</strong> abaixo:</Label>
+              <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="EXCLUIR" className="mt-2 border-red-300" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => { setDeleteConfirmOpen(false); setDeleteConfirmText(''); }}>Cancelar</Button>
+              <Button type="submit" variant="destructive" disabled={deletingAccount || deleteConfirmText !== 'EXCLUIR'} onClick={handleDeleteAccount}>
+                {deletingAccount && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Excluir conta permanentemente
+              </Button>
             </div>
           </div>
         </DialogContent>
